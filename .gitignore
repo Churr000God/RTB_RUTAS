@@ -1,0 +1,17 @@
+# Dependencias
+node_modules
+
+# Build
+dist
+dist-ssr
+
+# Variables de entorno (NUNCA subir llaves)
+.env
+.env.local
+.env.*.local
+
+# Sistema / editores
+.DS_Store
+*.local
+.vscode/*
+!.vscode/extensions.json
