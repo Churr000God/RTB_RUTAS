@@ -2,14 +2,15 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Truck, MapPin, Clock, Route, Plus, Trash2, Download, Upload, Zap,
   ChevronRight, AlertTriangle, Database, Map, GitCompare, X, Save,
-  TrendingDown, CheckCircle2, Info, LogOut
+  TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
+  Navigation, Flag
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
 import {
   getSession, signIn, signOut, onAuth,
-  getPuntos, addPunto, removePunto,
+  getPuntos, addPunto, updatePunto, removePunto,
   getRecorridos, addRecorrido, replaceAll
 } from "./lib/supabase";
 
@@ -41,6 +42,10 @@ function fmtMin(m) {
   return r ? `${h}h ${r}m` : `${h}h`;
 }
 const fmtKm = (k) => (k == null || !isFinite(k) ? "—" : `${k.toFixed(1)} km`);
+const fmtTime = (ts) => {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+};
 
 /* ============================================================
    El RECORRIDO es la fuente de verdad. De él se derivan tramos y esperas.
@@ -209,6 +214,8 @@ function analizarAhorro(points, recorridos, { leaveOneOut = true } = {}) {
     const realOrder = subPts.map((_, i) => i);
     const realOnMatrix = tourCost(realOrder, timeM, closed);
     const realMeasured = R.stops.reduce((s, st) => s + (st.legMin != null && isFinite(st.legMin) ? +st.legMin : 0), 0);
+    const totalWait = R.stops.reduce((s, st) => s + (st.waitMin != null && isFinite(st.waitMin) ? +st.waitMin : 0), 0);
+    const totalBreak = R.stops.reduce((s, st) => s + (st.legBreakMin || 0) + (st.waitBreakMin || 0), 0);
     const opt = solveTSP(timeM, n, closed);
     if (!opt) continue;
     const gap = realOnMatrix - opt.cost;
@@ -219,7 +226,7 @@ function analizarAhorro(points, recorridos, { leaveOneOut = true } = {}) {
 
     out.push({
       id: R.id, date: R.dateISO, ts: R.ts, n, closed,
-      realMeasured, realOnMatrix, optCost: opt.cost, gap,
+      realMeasured, totalWait, totalBreak, realOnMatrix, optCost: opt.cost, gap,
       gapPct: realOnMatrix > 0 ? (gap / realOnMatrix) * 100 : 0,
       realNames: subPts.map((p) => p.name),
       optNames: opt.order.map((k) => subPts[k].name),
@@ -240,6 +247,7 @@ const Card = ({ children, className = "" }) => (
 const Btn = ({ children, onClick, variant = "primary", disabled, className = "" }) => {
   const styles = {
     primary: "bg-amber-500 text-slate-950 hover:bg-amber-400 font-semibold",
+    success: "bg-teal-600 text-white hover:bg-teal-500 font-semibold",
     ghost: "bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700",
     danger: "bg-slate-800 text-rose-300 hover:bg-rose-950 border border-slate-700",
   };
@@ -337,7 +345,31 @@ export default function OptimizadorRutas() {
     return () => sub?.data?.subscription?.unsubscribe?.();
   }, [refresh]);
 
+  const [rutaDia, setRutaDia] = useState(null);
+
+  const onLoadRutaDia = ({ title, stops, closed }) => {
+    if (rutaDia && !rutaDia.done) {
+      if (!confirm("Ya hay una ruta activa. ¿Reemplazarla?")) return;
+    }
+    const startStop = stops[0];
+    setRutaDia({
+      title,
+      closed,
+      startId: startStop.id,
+      startName: startStop.name,
+      endId: closed ? startStop.id : null,
+      route: [],
+      remaining: stops.slice(1).map((s) => ({ id: s.id, name: s.name })),
+      phase: "initial",
+      nextStop: null,
+      nextLegKm: "",
+      done: false,
+    });
+    setTab("ruta-dia");
+  };
+
   const onAddPunto = async (p) => { await addPunto(p); await refresh(); };
+  const onUpdatePunto = async (id, p) => { await updatePunto(id, p); await refresh(); };
   const onRemovePunto = async (id) => { await removePunto(id); await refresh(); };
   const onAddRecorrido = async (r) => { await addRecorrido(r); await refresh(); };
   const onReplaceAll = async (p, r) => { await replaceAll(p, r); await refresh(); };
@@ -346,6 +378,7 @@ export default function OptimizadorRutas() {
 
   const tabs = [
     { id: "optimizar", label: "Optimizar", icon: Zap },
+    { id: "ruta-dia", label: "Ruta del día", icon: Navigation },
     { id: "registrar", label: "Registrar recorrido", icon: Clock },
     { id: "ahorro", label: "Análisis de ahorro", icon: TrendingDown },
     { id: "puntos", label: "Puntos", icon: MapPin },
@@ -377,20 +410,23 @@ export default function OptimizadorRutas() {
         <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/50 p-1">
           {tabs.map((t) => {
             const Icon = t.icon;
+            const hasActive = t.id === "ruta-dia" && rutaDia && !rutaDia.done;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition ${tab === t.id ? "bg-slate-800 text-amber-400" : "text-slate-400 hover:text-slate-200"}`}>
                 <Icon size={15} /> {t.label}
+                {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
               </button>
             );
           })}
         </nav>
 
-        {tab === "puntos" && <PuntosTab points={points} onAddPunto={onAddPunto} onRemovePunto={onRemovePunto} />}
+        {tab === "puntos" && <PuntosTab points={points} onAddPunto={onAddPunto} onUpdatePunto={onUpdatePunto} onRemovePunto={onRemovePunto} />}
         {tab === "registrar" && <RegistrarTab points={points} onAddRecorrido={onAddRecorrido} />}
         {tab === "ahorro" && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz" && <MatrizTab points={points} segments={obs.segments} />}
-        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} />}
+        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} />}
+        {tab === "ruta-dia" && <RutaDiaTab rutaDia={rutaDia} setRutaDia={setRutaDia} onSaveRuta={onAddRecorrido} allPoints={points} />}
         {tab === "datos" && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
       </div>
     </div>
@@ -400,28 +436,72 @@ export default function OptimizadorRutas() {
 /* ============================================================
    Tab: Puntos
    ============================================================ */
-function PuntosTab({ points, onAddPunto, onRemovePunto }) {
-  const [name, setName] = useState(""), [type, setType] = useState("entrega"), [lat, setLat] = useState(""), [lng, setLng] = useState("");
+function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
+  const [name, setName] = useState("");
+  const [type, setType] = useState("entrega");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
   const [busy, setBusy] = useState(false);
-  const add = async () => {
+  const [editId, setEditId] = useState(null);
+  const [search, setSearch] = useState("");
+
+  const startEdit = (p) => {
+    setEditId(p.id);
+    setName(p.name);
+    setType(p.type);
+    setLat(p.lat != null ? String(p.lat) : "");
+    setLng(p.lng != null ? String(p.lng) : "");
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+    setName(""); setType("entrega"); setLat(""); setLng("");
+  };
+
+  const save = async () => {
     if (!name.trim() || busy) return;
     setBusy(true);
     try {
-      await onAddPunto({ name: name.trim(), type, lat: lat ? parseFloat(lat) : null, lng: lng ? parseFloat(lng) : null });
-      setName(""); setLat(""); setLng("");
+      const payload = { name: name.trim(), type, lat: lat ? parseFloat(lat) : null, lng: lng ? parseFloat(lng) : null };
+      if (editId) {
+        await onUpdatePunto(editId, payload);
+        setEditId(null);
+      } else {
+        await onAddPunto(payload);
+      }
+      setName(""); setType("entrega"); setLat(""); setLng("");
     } finally { setBusy(false); }
   };
-  const remove = async (id) => { await onRemovePunto(id); };
+
+  const remove = async (id) => {
+    if (editId === id) cancelEdit();
+    await onRemovePunto(id);
+  };
+
+  const filtered = search.trim()
+    ? points.filter((p) =>
+        p.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+        TYPE_META[p.type].label.toLowerCase().includes(search.trim().toLowerCase())
+      )
+    : points;
+
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_1.2fr]">
       <Card className="p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-200">Nuevo punto</h2>
+        <h2 className="mb-3 text-sm font-semibold text-slate-200">
+          {editId ? "Editar punto" : "Nuevo punto"}
+        </h2>
         <div className="space-y-3">
-          <Field label="Nombre"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Almacén / Cliente / Sucursal" /></Field>
+          <Field label="Nombre">
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Almacén / Cliente / Sucursal" />
+          </Field>
           <Field label="Tipo">
             <div className="flex gap-1">
               {Object.entries(TYPE_META).map(([k, v]) => (
-                <button key={k} onClick={() => setType(k)} className={`flex-1 rounded-lg border px-2 py-2 text-xs ${type === k ? "border-amber-500 bg-amber-500/10 text-amber-300" : "border-slate-700 text-slate-400"}`}>{v.label}</button>
+                <button key={k} onClick={() => setType(k)}
+                  className={`flex-1 rounded-lg border px-2 py-2 text-xs ${type === k ? "border-amber-500 bg-amber-500/10 text-amber-300" : "border-slate-700 text-slate-400"}`}>
+                  {v.label}
+                </button>
               ))}
             </div>
           </Field>
@@ -430,21 +510,56 @@ function PuntosTab({ points, onAddPunto, onRemovePunto }) {
             <Field label="Longitud (opcional)"><input className={inputCls} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="-99.1332" /></Field>
           </div>
           <p className="text-xs text-slate-500">Coordenadas opcionales: solo estiman tramos que aún no has manejado.</p>
-          <Btn onClick={add} disabled={busy} className="w-full justify-center"><Plus size={16} /> Agregar punto</Btn>
+          <div className="flex gap-2">
+            {editId && (
+              <Btn variant="ghost" onClick={cancelEdit} className="flex-1 justify-center">
+                <X size={16} /> Cancelar
+              </Btn>
+            )}
+            <Btn onClick={save} disabled={busy} className={`${editId ? "flex-1" : "w-full"} justify-center`}>
+              {editId ? <><Save size={16} /> Guardar cambios</> : <><Plus size={16} /> Agregar punto</>}
+            </Btn>
+          </div>
         </div>
       </Card>
+
       <Card className="p-4">
         <h2 className="mb-3 text-sm font-semibold text-slate-200">Puntos registrados</h2>
-        {points.length === 0 ? <Empty>Aún no hay puntos. Agrega tu almacén como <span className="text-amber-400">Depósito</span> y tus clientes.</Empty> : (
-          <ul className="space-y-1.5">
-            {points.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${TYPE_META[p.type].dot}`} />
+        {points.length > 0 && (
+          <div className="relative mb-3">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            <input
+              className={inputCls + " pl-8"}
+              placeholder="Buscar punto…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        )}
+        {points.length === 0 ? (
+          <Empty>Aún no hay puntos. Agrega tu almacén como <span className="text-amber-400">Depósito</span> y tus clientes.</Empty>
+        ) : filtered.length === 0 ? (
+          <Empty>Sin resultados para <span className="text-slate-300">"{search}"</span>.</Empty>
+        ) : (
+          <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+            {filtered.map((p) => (
+              <li key={p.id}
+                className={`flex items-center gap-3 rounded-lg border bg-slate-950/50 px-3 py-2 transition ${editId === p.id ? "border-amber-500/50 bg-amber-500/5" : "border-slate-800"}`}>
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm text-slate-200">{p.name}</div>
-                  <div className="text-[11px] text-slate-500">{TYPE_META[p.type].label}{p.lat != null && p.lng != null && <span className="font-mono"> · {p.lat.toFixed(4)}, {p.lng.toFixed(4)}</span>}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {TYPE_META[p.type].label}
+                    {p.lat != null && p.lng != null && <span className="font-mono"> · {p.lat.toFixed(4)}, {p.lng.toFixed(4)}</span>}
+                  </div>
                 </div>
-                <button onClick={() => remove(p.id)} className="text-slate-600 hover:text-rose-400"><Trash2 size={15} /></button>
+                <button onClick={() => editId === p.id ? cancelEdit() : startEdit(p)}
+                  className={`transition ${editId === p.id ? "text-amber-400" : "text-slate-600 hover:text-amber-400"}`}>
+                  <Pencil size={14} />
+                </button>
+                <button onClick={() => remove(p.id)} className="text-slate-600 hover:text-rose-400">
+                  <Trash2 size={15} />
+                </button>
               </li>
             ))}
           </ul>
@@ -457,6 +572,8 @@ function PuntosTab({ points, onAddPunto, onRemovePunto }) {
 /* ============================================================
    Tab: Registrar recorrido
    ============================================================ */
+const DRAFT_KEY = "rtb_drafts";
+
 function RegistrarTab({ points, onAddRecorrido }) {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
@@ -464,7 +581,48 @@ function RegistrarTab({ points, onAddRecorrido }) {
   const [pick, setPick] = useState("");
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [drafts, setDrafts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
+    catch { return []; }
+  });
+  const [activeDraftId, setActiveDraftId] = useState(null);
+
   const pointName = (id) => points.find((p) => p.id === id)?.name ?? "—";
+
+  const persistDrafts = (list) => {
+    setDrafts(list);
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(list));
+  };
+
+  const saveDraft = () => {
+    if (seq.length === 0) return;
+    const now = new Date().toISOString();
+    if (activeDraftId) {
+      persistDrafts(drafts.map((d) => d.id === activeDraftId ? { ...d, dateISO: date, seq, savedAt: now } : d));
+    } else {
+      const nd = { id: Date.now().toString(), dateISO: date, seq, savedAt: now };
+      persistDrafts([...drafts, nd]);
+      setActiveDraftId(nd.id);
+    }
+  };
+
+  const loadDraft = (draft) => {
+    setDate(draft.dateISO);
+    setSeq(draft.seq);
+    setActiveDraftId(draft.id);
+    setPick("");
+  };
+
+  const deleteDraft = (id) => {
+    persistDrafts(drafts.filter((d) => d.id !== id));
+    if (activeDraftId === id) { setActiveDraftId(null); setSeq([]); setDate(today); setPick(""); }
+  };
+
+  const newForm = () => { setSeq([]); setDate(today); setPick(""); setActiveDraftId(null); };
+
+  const [breakMin, setBreakMin] = useState("");
+  const [breakNote, setBreakNote] = useState("");
+  const [breakAfter, setBreakAfter] = useState(""); // índice del stop tras el que ocurrió la comida
 
   const addStop = () => { if (!pick) return; setSeq([...seq, { point: pick, legMin: "", legKm: "", waitMin: "" }]); setPick(""); };
   const update = (i, k, v) => setSeq(seq.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
@@ -473,60 +631,142 @@ function RegistrarTab({ points, onAddRecorrido }) {
   const save = async () => {
     if (seq.length < 2 || busy) return;
     const ts = new Date(date + "T12:00:00").getTime();
+    const bkMin = breakMin !== "" && !isNaN(+breakMin) && +breakMin > 0 ? +breakMin : null;
+    const bkIdx = breakAfter !== "" ? +breakAfter : null;
     const stops = seq.map((s, i) => ({
       point: s.point,
       legMin: i > 0 && s.legMin !== "" && !isNaN(+s.legMin) ? +s.legMin : null,
       legKm: i > 0 && s.legKm !== "" && !isNaN(+s.legKm) ? +s.legKm : null,
       waitMin: s.waitMin !== "" && !isNaN(+s.waitMin) ? +s.waitMin : null,
+      // La comida se asigna como waitBreakMin en la parada elegida (ocurrió estando ahí)
+      waitBreakMin: bkMin != null && bkIdx === i ? bkMin : null,
+      breakNote: bkMin != null && bkIdx === i ? (breakNote.trim() || null) : null,
     }));
     setBusy(true);
     try {
       await onAddRecorrido({ dateISO: date, ts, stops });
-      setSeq([]); setDone(true); setTimeout(() => setDone(false), 2500);
+      if (activeDraftId) {
+        persistDrafts(drafts.filter((d) => d.id !== activeDraftId));
+        setActiveDraftId(null);
+      }
+      setSeq([]); setBreakMin(""); setBreakNote(""); setBreakAfter("");
+      setDone(true); setTimeout(() => setDone(false), 2500);
     } finally { setBusy(false); }
   };
 
   if (points.length < 2) return <Card className="p-6"><Empty>Necesitas al menos 2 puntos. Créalos en <span className="text-amber-400">Puntos</span>.</Empty></Card>;
 
   return (
-    <Card className="p-4">
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <Field label="Fecha del recorrido"><input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-xs text-slate-400">{DOW[new Date(date + "T12:00:00").getDay()]}</span>
-      </div>
-      <p className="mb-3 text-xs text-slate-500">Arma el recorrido en el orden real. Captura el <span className="text-teal-400">tiempo de manejo</span> de cada tramo y la <span className="text-sky-400">espera</span> en cada parada. Cada guardado alimenta el aprendizaje y queda disponible para el análisis de ahorro.</p>
-      {seq.length > 0 && (
-        <ol className="mb-4 space-y-2">
-          {seq.map((s, i) => (
-            <li key={i} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-slate-950">{i + 1}</span>
-                <span className="text-sm text-slate-200">{pointName(s.point)}</span>
-                <button onClick={() => removeStop(i)} className="ml-auto text-slate-600 hover:text-rose-400"><X size={15} /></button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <Field label={i === 0 ? "Tramo (n/a)" : "Tramo (min)"}><input className={inputCls} disabled={i === 0} value={s.legMin} onChange={(e) => update(i, "legMin", e.target.value)} placeholder={i === 0 ? "—" : "14"} /></Field>
-                <Field label="Distancia (km)"><input className={inputCls} disabled={i === 0} value={s.legKm} onChange={(e) => update(i, "legKm", e.target.value)} placeholder="opcional" /></Field>
-                <Field label="Espera (min)"><input className={inputCls} value={s.waitMin} onChange={(e) => update(i, "waitMin", e.target.value)} placeholder="5" /></Field>
-              </div>
-            </li>
-          ))}
-        </ol>
+    <div className="space-y-4">
+      {/* Lista de borradores */}
+      {drafts.length > 0 && (
+        <Card className="p-4">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <FileText size={15} className="text-slate-400" /> Borradores guardados
+          </h2>
+          <ul className="space-y-2">
+            {drafts.map((d) => {
+              const isActive = activeDraftId === d.id;
+              return (
+                <li key={d.id}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition ${isActive ? "border-amber-500/50 bg-amber-500/5" : "border-slate-800 bg-slate-950/50"}`}>
+                  <FileText size={14} className={isActive ? "text-amber-400 shrink-0" : "text-slate-600 shrink-0"} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-slate-200">{d.dateISO}</span>
+                      <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">{d.seq.length} paradas</span>
+                      {isActive && <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">editando</span>}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                      {d.seq.map((s) => pointName(s.point)).join(" → ")}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {!isActive && (
+                      <Btn variant="ghost" onClick={() => loadDraft(d)} className="py-1 px-2 text-xs">Continuar</Btn>
+                    )}
+                    <button onClick={() => deleteDraft(d.id)} className="p-1 text-slate-600 hover:text-rose-400"><Trash2 size={14} /></button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
       )}
-      <div className="flex flex-wrap items-end gap-2">
-        <Field label="Agregar parada">
-          <select className={inputCls + " min-w-[200px]"} value={pick} onChange={(e) => setPick(e.target.value)}>
-            <option value="">Selecciona un punto…</option>
-            {points.map((p) => <option key={p.id} value={p.id}>{p.name} · {TYPE_META[p.type].label}</option>)}
-          </select>
-        </Field>
-        <Btn variant="ghost" onClick={addStop} disabled={!pick}><Plus size={16} /> Agregar al recorrido</Btn>
-        <div className="ml-auto flex items-center gap-3">
-          {done && <span className="text-xs text-teal-400">✓ Guardado y aprendido</span>}
-          <Btn onClick={save} disabled={seq.length < 2 || busy}><Save size={16} /> Guardar recorrido</Btn>
+
+      {/* Formulario */}
+      <Card className="p-4">
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <Field label="Fecha del recorrido">
+            <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-xs text-slate-400">{DOW[new Date(date + "T12:00:00").getDay()]}</span>
+          {activeDraftId && (
+            <button onClick={newForm} className="ml-auto text-xs text-slate-500 hover:text-slate-300">
+              + Nuevo recorrido
+            </button>
+          )}
         </div>
-      </div>
-    </Card>
+        <p className="mb-3 text-xs text-slate-500">Arma el recorrido en el orden real. Captura el <span className="text-teal-400">tiempo de manejo</span> de cada tramo y la <span className="text-sky-400">espera</span> en cada parada. Cada guardado alimenta el aprendizaje y queda disponible para el análisis de ahorro.</p>
+        {seq.length > 0 && (
+          <ol className="mb-4 space-y-2">
+            {seq.map((s, i) => (
+              <li key={i} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-slate-950">{i + 1}</span>
+                  <span className="text-sm text-slate-200">{pointName(s.point)}</span>
+                  <button onClick={() => removeStop(i)} className="ml-auto text-slate-600 hover:text-rose-400"><X size={15} /></button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label={i === 0 ? "Tramo (n/a)" : "Tramo (min)"}><input className={inputCls} disabled={i === 0} value={s.legMin} onChange={(e) => update(i, "legMin", e.target.value)} placeholder={i === 0 ? "—" : "14"} /></Field>
+                  <Field label="Distancia (km)"><input className={inputCls} disabled={i === 0} value={s.legKm} onChange={(e) => update(i, "legKm", e.target.value)} placeholder="opcional" /></Field>
+                  <Field label="Espera (min)"><input className={inputCls} value={s.waitMin} onChange={(e) => update(i, "waitMin", e.target.value)} placeholder="5" /></Field>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Agregar parada">
+            <select className={inputCls + " min-w-[200px]"} value={pick} onChange={(e) => setPick(e.target.value)}>
+              <option value="">Selecciona un punto…</option>
+              {points.map((p) => <option key={p.id} value={p.id}>{p.name} · {TYPE_META[p.type].label}</option>)}
+            </select>
+          </Field>
+          <Btn variant="ghost" onClick={addStop} disabled={!pick}><Plus size={16} /> Agregar al recorrido</Btn>
+          <div className="ml-auto flex items-center gap-3">
+            {done && <span className="text-xs text-teal-400">✓ Guardado y aprendido</span>}
+            <Btn variant="ghost" onClick={saveDraft} disabled={seq.length === 0}><Save size={16} /> Guardar borrador</Btn>
+            <Btn onClick={save} disabled={seq.length < 2 || busy}><Save size={16} /> Guardar recorrido</Btn>
+          </div>
+        </div>
+
+        {/* Bloque comida — opcional, no contamina tramos ni esperas */}
+        {seq.length >= 2 && (
+          <div className="mt-4 rounded-lg border border-orange-900/40 bg-orange-950/10 p-3">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-orange-300">
+              <span>🍽</span> Comida del día <span className="font-normal text-slate-500">(opcional · no afecta el aprendizaje)</span>
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <Field label="Duración (min)">
+                <input className={inputCls} type="number" min="0" value={breakMin}
+                  onChange={(e) => setBreakMin(e.target.value)} placeholder="60" />
+              </Field>
+              <Field label="¿En cuál parada comiste?">
+                <select className={inputCls} value={breakAfter} onChange={(e) => setBreakAfter(e.target.value)}>
+                  <option value="">Elige una parada…</option>
+                  {seq.map((s, i) => <option key={i} value={i}>{i + 1}. {pointName(s.point)}</option>)}
+                </select>
+              </Field>
+              <Field label="Nota del lugar (opcional)">
+                <input className={inputCls} value={breakNote}
+                  onChange={(e) => setBreakNote(e.target.value)} placeholder="Ej. Tacos calle Reforma" />
+              </Field>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -608,10 +848,13 @@ function AhorroTab({ points, recorridos }) {
               </button>
               {open === r.id && (
                 <div className="border-t border-slate-800 px-3 py-3">
-                  <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="mb-3 grid grid-cols-2 gap-2 text-center sm:grid-cols-3 lg:grid-cols-6">
                     <Stat label="Tu orden (en matriz)" value={fmtMin(r.realOnMatrix)} color="text-rose-300" />
                     <Stat label="Orden óptimo" value={fmtMin(r.optCost)} color="text-amber-300" />
                     <Stat label="Real medido ese día" value={fmtMin(r.realMeasured)} />
+                    <Stat label="Espera total" value={fmtMin(r.totalWait)} color="text-sky-300" />
+                    {r.totalBreak > 0 && <Stat label="Comida" value={fmtMin(r.totalBreak)} color="text-orange-300" />}
+                    <Stat label="Total ruta" value={fmtMin(r.realMeasured + r.totalWait + r.totalBreak)} color="text-violet-300" highlight />
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div>
@@ -700,12 +943,14 @@ function MatrizTab({ points, segments }) {
 /* ============================================================
    Tab: Optimizar
    ============================================================ */
-function OptimizarTab({ points, segments, waits }) {
+function OptimizarTab({ points, segments, waits, onLoadRutaDia }) {
   const [selected, setSelected] = useState(() => new Set());
   const [startId, setStartId] = useState("");
   const [closed, setClosed] = useState(true);
   const [weekday, setWeekday] = useState("");
   const [result, setResult] = useState(null);
+  const [pointSearch, setPointSearch] = useState("");
+  const [comidaMin, setComidaMin] = useState("");
 
   useEffect(() => { if (!startId && points.length) { const dep = points.find((p) => p.type === "deposito"); setStartId(dep ? dep.id : points[0].id); } }, [points, startId]);
   const toggle = (id) => { const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n); };
@@ -730,7 +975,7 @@ function OptimizarTab({ points, segments, waits }) {
         if (s > 0) totW += W[sub[k].id] ?? 0;
       }
       if (closed) { const a = o[o.length - 1], k = o[0]; totT += timeM[a][k] ?? 0; totD += distM[a][k] ?? 0; if (!learned[a][k]) anyEst = true; legs.push({ min: timeM[a][k], km: distM[a][k], learned: learned[a][k], ret: true }); }
-      return { seqNames: o.map((k) => sub[k].name), legs, totT, totD, totW, exact: r.exact, anyEst };
+      return { seqNames: o.map((k) => sub[k].name), seqIds: o.map((k) => sub[k].id), legs, totT, totD, totW, exact: r.exact, anyEst };
     };
     setResult({ byTime: routeForMetric(timeM), byDist: routeForMetric(distM), n });
   };
@@ -742,17 +987,30 @@ function OptimizarTab({ points, segments, waits }) {
         <div className="grid gap-4 md:grid-cols-[1.3fr_1fr]">
           <div>
             <h2 className="mb-2 text-sm font-semibold text-slate-200">Puntos a visitar hoy</h2>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-              {points.map((p) => {
-                const isStart = p.id === startId, on = selected.has(p.id) || isStart;
-                return (
-                  <button key={p.id} onClick={() => !isStart && toggle(p.id)} disabled={isStart}
-                    className={`rounded-lg border px-2.5 py-2 text-left text-xs transition ${isStart ? "border-amber-500 bg-amber-500/15 text-amber-200" : on ? "border-teal-500 bg-teal-500/10 text-teal-200" : "border-slate-700 text-slate-400 hover:border-slate-600"}`}>
-                    <div className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${TYPE_META[p.type].dot}`} /><span className="truncate">{p.name}</span></div>
-                    {isStart && <span className="text-[10px] text-amber-400/80">Inicio</span>}
-                  </button>
-                );
-              })}
+            <div className="relative mb-2">
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                className={inputCls + " py-1.5 pl-8 text-xs"}
+                placeholder="Buscar punto…"
+                value={pointSearch}
+                onChange={(e) => setPointSearch(e.target.value)}
+              />
+            </div>
+            <div className="max-h-52 overflow-y-auto pr-0.5">
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                {points
+                  .filter((p) => p.name.toLowerCase().includes(pointSearch.trim().toLowerCase()))
+                  .map((p) => {
+                    const isStart = p.id === startId, on = selected.has(p.id) || isStart;
+                    return (
+                      <button key={p.id} onClick={() => !isStart && toggle(p.id)} disabled={isStart}
+                        className={`rounded-lg border px-2.5 py-2 text-left text-xs transition ${isStart ? "border-amber-500 bg-amber-500/15 text-amber-200" : on ? "border-teal-500 bg-teal-500/10 text-teal-200" : "border-slate-700 text-slate-400 hover:border-slate-600"}`}>
+                        <div className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${TYPE_META[p.type].dot}`} /><span className="truncate">{p.name}</span></div>
+                        {isStart && <span className="text-[10px] text-amber-400/80">Inicio</span>}
+                      </button>
+                    );
+                  })}
+              </div>
             </div>
           </div>
           <div className="space-y-3">
@@ -772,6 +1030,10 @@ function OptimizarTab({ points, segments, waits }) {
                 <option value="">Todos los días (promedio global)</option>{DOW.map((d, i) => <option key={i} value={i}>Solo {d}</option>)}
               </select>
             </Field>
+            <Field label="Comida (min) — buffer al total">
+              <input className={inputCls} type="number" min="0" value={comidaMin}
+                onChange={(e) => setComidaMin(e.target.value)} placeholder="60" />
+            </Field>
             <Btn onClick={compute} className="w-full justify-center"><Zap size={16} /> Calcular mejor ruta</Btn>
           </div>
         </div>
@@ -779,8 +1041,8 @@ function OptimizarTab({ points, segments, waits }) {
       {result?.error && <Card className="border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-300"><AlertTriangle size={16} className="mb-1 inline" /> {result.error}</Card>}
       {result && !result.error && (
         <div className="grid gap-4 md:grid-cols-2">
-          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" />
-          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" />
+          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} />
+          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} />
           {result.byTime?.seqNames && result.byDist?.seqNames && (
             <div className="md:col-span-2">
               <Card className="flex items-center gap-3 p-3 text-xs text-slate-400">
@@ -797,7 +1059,7 @@ function OptimizarTab({ points, segments, waits }) {
     </div>
   );
 }
-function RouteCard({ title, accent, data, primary }) {
+function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0 }) {
   const accentCls = accent === "amber" ? "text-amber-400" : "text-sky-400";
   if (!data) return null;
   if (data.unavailable) return (
@@ -812,13 +1074,14 @@ function RouteCard({ title, accent, data, primary }) {
         <h3 className={`text-sm font-semibold ${accentCls}`}>{title}</h3>
         {data.anyEst && <span className="rounded bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-300">incluye tramos estimados</span>}
       </div>
-      <div className="mb-3 grid grid-cols-3 gap-2 text-center">
+      <div className={`mb-3 grid gap-2 text-center ${comidaMin > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
         <Stat label="Manejo" value={fmtMin(data.totT)} highlight={primary === "time"} />
         <Stat label="Esperas" value={fmtMin(data.totW)} />
-        <Stat label="Total" value={fmtMin(data.totT + data.totW)} highlight={primary === "time"} />
+        {comidaMin > 0 && <Stat label="Comida" value={fmtMin(comidaMin)} color="text-orange-300" />}
+        <Stat label="Total día" value={fmtMin(data.totT + data.totW + comidaMin)} highlight />
       </div>
       <div className="mb-3 text-center"><span className="text-xs text-slate-500">Distancia: </span><span className={`font-mono text-sm ${primary === "dist" ? "text-sky-300" : "text-slate-300"}`}>{fmtKm(data.totD)}</span></div>
-      <ol className="space-y-1">
+      <ol className="mb-3 space-y-1">
         {data.seqNames.map((name, i) => (
           <li key={i} className="flex items-center gap-2 text-sm">
             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-slate-300">{i + 1}</span>
@@ -833,7 +1096,390 @@ function RouteCard({ title, accent, data, primary }) {
           </li>
         )}
       </ol>
+      {onLoadRuta && data.seqIds && (
+        <Btn variant="ghost" onClick={() => onLoadRuta({
+          title,
+          stops: data.seqIds.map((id, i) => ({ id, name: data.seqNames[i] })),
+          closed,
+        })} className="w-full justify-center">
+          <Navigation size={15} /> Cargar como ruta del día
+        </Btn>
+      )}
     </Card>
+  );
+}
+
+/* ============================================================
+   Tab: Ruta del día
+   ============================================================ */
+function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints }) {
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const [extraSearch, setExtraSearch] = useState("");
+  // Pausa/comida — estado local transitorio
+  const [onBreak, setOnBreak] = useState(false);
+  const [breakStart, setBreakStart] = useState(null);
+  const [breakNoteInput, setBreakNoteInput] = useState("");
+  const [pendingLegBreakMin, setPendingLegBreakMin] = useState(0); // acumulado en viaje
+
+  if (!rutaDia) {
+    return (
+      <Card className="p-6">
+        <Empty>
+          No hay ruta del día cargada. Ve a <span className="text-amber-400">Optimizar</span>, calcula
+          una ruta y presiona <span className="text-amber-400">"Cargar como ruta del día"</span>.
+        </Empty>
+      </Card>
+    );
+  }
+
+  const { title, closed, startId, startName, endId, route, remaining, phase, nextStop, nextLegKm, done } = rutaDia;
+  const patch = (updates) => setRutaDia({ ...rutaDia, ...updates });
+
+  /* Puntos disponibles como "extra" (no planificados, no visitados, no el inicio) */
+  const visitedIds = new Set(route.map((s) => s.id));
+  const remainingIds = new Set(remaining.map((s) => s.id));
+  const extraPoints = (allPoints || []).filter(
+    (p) => !visitedIds.has(p.id) && !remainingIds.has(p.id) && p.id !== startId
+  );
+
+  const saveRoute = async (finalRoute) => {
+    if (finalRoute.length < 2) { setErr("Se necesitan al menos 2 paradas para guardar."); return; }
+    const today = new Date().toISOString().slice(0, 10);
+    const recStops = finalRoute.map((stop, i) => {
+      const prev = i > 0 ? finalRoute[i - 1] : null;
+      const rawLeg = i > 0 && prev?.departedAt && stop.arrivedAt
+        ? Math.round((stop.arrivedAt - prev.departedAt) / 60000) : null;
+      const legBreakMin = stop.legBreakMin > 0 ? stop.legBreakMin : null;
+      const legMin = rawLeg != null ? Math.max(0, rawLeg - (legBreakMin || 0)) : null;
+      const legKm = i > 0 && stop.legKm !== "" && !isNaN(+stop.legKm) ? +stop.legKm : null;
+      const rawWait = stop.arrivedAt && stop.departedAt
+        ? Math.round((stop.departedAt - stop.arrivedAt) / 60000) : null;
+      const waitBreakMin = stop.waitBreakMin > 0 ? stop.waitBreakMin : null;
+      const waitMin = rawWait != null ? Math.max(0, rawWait - (waitBreakMin || 0)) : null;
+      return {
+        point: stop.id, legMin, legKm, waitMin,
+        legBreakMin, waitBreakMin,
+        breakNote: stop.breakNote || null,
+      };
+    });
+    setSaving(true); setErr("");
+    try {
+      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops });
+      patch({ route: finalRoute, done: true });
+    } catch { setErr("Error al guardar. Intenta de nuevo."); }
+    finally { setSaving(false); }
+  };
+
+  /* -------- Handlers por fase -------- */
+  const handleInitialArrival = () => {
+    patch({
+      route: [{ id: startId, name: startName, arrivedAt: Date.now(), departedAt: null, legKm: "" }],
+      phase: "at-stop",
+    });
+  };
+
+  const handleDeparture = () => {
+    const now = Date.now();
+    patch({
+      route: route.map((s, i) => i === route.length - 1 ? { ...s, departedAt: now } : s),
+      phase: "choose-next",
+    });
+  };
+
+  const handleSelectNext = (stop) => {
+    patch({
+      remaining: remaining.filter((s) => s.id !== stop.id),
+      nextStop: stop,
+      nextLegKm: "",
+      phase: "traveling",
+    });
+    setExtraSearch("");
+  };
+
+  const handleArrival = async () => {
+    const newStop = {
+      ...nextStop, arrivedAt: Date.now(), departedAt: null, legKm: nextLegKm,
+      legBreakMin: pendingLegBreakMin > 0 ? pendingLegBreakMin : 0,
+    };
+    setPendingLegBreakMin(0);
+    const newRoute = [...route, newStop];
+    const isEndDepot = closed && nextStop.id === endId;
+    if (isEndDepot) {
+      await saveRoute(newRoute);
+    } else {
+      patch({ route: newRoute, nextStop: null, nextLegKm: "", phase: "at-stop" });
+    }
+  };
+
+  const handleTerminate = () => saveRoute(route);
+
+  const handleStartBreak = () => {
+    setOnBreak(true);
+    setBreakStart(Date.now());
+    setBreakNoteInput("");
+  };
+
+  const handleEndBreak = () => {
+    const dur = Math.max(1, Math.round((Date.now() - breakStart) / 60000));
+    const note = breakNoteInput.trim() || null;
+    if (phase === "traveling") {
+      setPendingLegBreakMin(pendingLegBreakMin + dur);
+    } else if (phase === "at-stop" && curStop) {
+      patch({
+        route: route.map((s, i) =>
+          i === route.length - 1
+            ? { ...s, waitBreakMin: (s.waitBreakMin || 0) + dur, breakNote: note || s.breakNote }
+            : s
+        ),
+      });
+    }
+    setOnBreak(false);
+    setBreakStart(null);
+    setBreakNoteInput("");
+  };
+
+  const cancel = () => {
+    if (confirm("¿Cancelar la ruta del día? Se perderán los tiempos registrados.")) setRutaDia(null);
+  };
+
+  const curStop = route.length > 0 ? route[route.length - 1] : null;
+
+  /* -------- Done -------- */
+  if (done) {
+    return (
+      <Card className="p-8 text-center">
+        <CheckCircle2 size={44} className="mx-auto mb-3 text-teal-400" />
+        <h2 className="mb-1 text-base font-semibold text-slate-200">¡Ruta completada!</h2>
+        <p className="mb-5 text-sm text-slate-400">El recorrido fue guardado y ya alimenta el aprendizaje del sistema.</p>
+        <Btn variant="ghost" onClick={() => setRutaDia(null)}>Nueva ruta del día</Btn>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Encabezado */}
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-200">Ruta del día · {title}</h2>
+            <p className="text-xs text-slate-500">
+              {route.length} visitadas · {remaining.length} planificadas pendientes · {closed ? "Ruta cerrada" : "Ruta abierta"}
+            </p>
+          </div>
+          <Btn variant="danger" onClick={cancel}>Cancelar ruta</Btn>
+        </div>
+      </Card>
+
+      {/* Historial de paradas visitadas */}
+      {route.length > 0 && (
+        <Card className="p-4">
+          <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Paradas visitadas</h3>
+          <ul className="space-y-1.5">
+            {route.map((stop, i) => {
+              const isLast = i === route.length - 1;
+              const prev = i > 0 ? route[i - 1] : null;
+              const legMin = i > 0 && prev?.departedAt && stop.arrivedAt
+                ? Math.round((stop.arrivedAt - prev.departedAt) / 60000) : null;
+              const waitMin = stop.arrivedAt && stop.departedAt
+                ? Math.round((stop.departedAt - stop.arrivedAt) / 60000) : null;
+              return (
+                <li key={i} className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 ${isLast ? "border-amber-500/50 bg-amber-500/5" : "border-teal-900/40 bg-teal-950/20"}`}>
+                  <div className="mt-0.5 shrink-0">
+                    {isLast
+                      ? <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-slate-950">{i + 1}</span>
+                      : <CheckCircle2 size={18} className="text-teal-400" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${isLast ? "text-amber-200" : "text-teal-200"}`}>{stop.name}</span>
+                      {closed && stop.id === endId && i > 0 && <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">regreso</span>}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+                      {stop.arrivedAt  && <span className="text-slate-500">Llegada <span className="text-slate-300">{fmtTime(stop.arrivedAt)}</span></span>}
+                      {stop.departedAt && <span className="text-slate-500">Salida <span className="text-slate-300">{fmtTime(stop.departedAt)}</span></span>}
+                      {legMin  != null && <span className="text-slate-500">Tramo <span className="text-teal-300">{fmtMin(legMin)}</span></span>}
+                      {waitMin != null && <span className="text-slate-500">Espera <span className="text-sky-300">{fmtMin(waitMin)}</span></span>}
+                      {stop.legKm && i > 0 && <span className="text-slate-500">{stop.legKm} km</span>}
+                      {(stop.legBreakMin > 0 || stop.waitBreakMin > 0) && (
+                        <span className="text-slate-500">🍽 <span className="text-orange-300">{fmtMin((stop.legBreakMin || 0) + (stop.waitBreakMin || 0))}</span>{stop.breakNote && <span className="ml-0.5 text-slate-500">({stop.breakNote})</span>}</span>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
+      {/* Tarjeta de acción */}
+      <Card className="p-4">
+        {/* Fase: inicio */}
+        {phase === "initial" && (
+          <>
+            <h3 className="mb-3 text-sm font-semibold text-slate-200">Punto de inicio: {startName}</h3>
+            <Btn onClick={handleInitialArrival} className="w-full justify-center">
+              <MapPin size={16} /> Llegada a {startName}
+            </Btn>
+          </>
+        )}
+
+        {/* Fase: en parada */}
+        {phase === "at-stop" && curStop && (
+          <>
+            <h3 className="mb-2 text-sm font-semibold text-slate-200">En {curStop.name}</h3>
+            <p className="mb-3 text-xs text-slate-500">
+              Llegada: <span className="text-slate-200">{fmtTime(curStop.arrivedAt)}</span>
+              {route.length > 1 && route[route.length - 2]?.departedAt && (
+                <> · Tramo: <span className="text-teal-300">{fmtMin(Math.round((curStop.arrivedAt - route[route.length - 2].departedAt) / 60000))}</span></>
+              )}
+            </p>
+            {err && <p className="mb-2 text-xs text-rose-400">{err}</p>}
+            {/* Pausa activa */}
+            {onBreak ? (
+              <div className="mb-3 rounded-lg border border-orange-800/50 bg-orange-950/20 p-3">
+                <p className="mb-2 text-sm font-semibold text-orange-300">🍽 Comida en curso — desde {fmtTime(breakStart)}</p>
+                <Field label="Lugar / nota (opcional)">
+                  <input className={inputCls} value={breakNoteInput} onChange={(e) => setBreakNoteInput(e.target.value)} placeholder="Ej. Tacos Reforma" />
+                </Field>
+                <Btn onClick={handleEndBreak} className="mt-2 w-full justify-center border border-orange-700/50 bg-orange-900/30 text-orange-200 hover:bg-orange-800/40">
+                  ✓ Terminar comida
+                </Btn>
+              </div>
+            ) : (
+              <button onClick={handleStartBreak}
+                className="mb-3 flex w-full items-center gap-2 rounded-lg border border-orange-900/30 bg-orange-950/10 px-3 py-2 text-sm text-orange-300 transition hover:bg-orange-950/25">
+                <span>🍽</span> Comida / Pausa
+              </button>
+            )}
+            <Btn variant="ghost" onClick={handleDeparture} disabled={onBreak} className="w-full justify-center">
+              <ChevronRight size={16} /> Salida de {curStop.name}
+            </Btn>
+          </>
+        )}
+
+        {/* Fase: elegir próximo destino */}
+        {phase === "choose-next" && (
+          <>
+            <h3 className="mb-3 text-sm font-semibold text-slate-200">¿A dónde vas ahora?</h3>
+
+            {remaining.length > 0 && (
+              <div className="mb-4">
+                <p className="mb-2 text-[11px] uppercase tracking-wider text-slate-500">Paradas planificadas pendientes</p>
+                <ul className="space-y-1.5">
+                  {remaining.map((stop) => (
+                    <li key={stop.id}>
+                      <button onClick={() => handleSelectNext(stop)}
+                        className="flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2.5 text-left transition hover:border-slate-600">
+                        <MapPin size={14} className="shrink-0 text-amber-400" />
+                        <span className="text-sm text-slate-200">{stop.name}</span>
+                        <ChevronRight size={14} className="ml-auto text-slate-600" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {extraPoints.length > 0 && (
+              <div className="mb-4">
+                <p className="mb-2 text-[11px] uppercase tracking-wider text-slate-500">Agregar parada no planificada</p>
+                <div className="relative mb-2">
+                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    className={inputCls + " pl-8"}
+                    placeholder="Buscar punto…"
+                    value={extraSearch}
+                    onChange={(e) => setExtraSearch(e.target.value)}
+                  />
+                </div>
+                {extraSearch.trim() && (() => {
+                  const filtered = extraPoints.filter((p) =>
+                    p.name.toLowerCase().includes(extraSearch.trim().toLowerCase())
+                  );
+                  return filtered.length > 0 ? (
+                    <ul className="max-h-44 space-y-1 overflow-y-auto">
+                      {filtered.map((p) => (
+                        <li key={p.id}>
+                          <button
+                            onClick={() => { handleSelectNext({ id: p.id, name: p.name }); setExtraSearch(""); }}
+                            className="flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-left transition hover:border-slate-600">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
+                            <span className="text-sm text-slate-200">{p.name}</span>
+                            <span className="ml-auto text-[11px] text-slate-500">{TYPE_META[p.type].label}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="px-1 text-xs text-slate-500">Sin resultados para "{extraSearch}".</p>
+                  );
+                })()}
+              </div>
+            )}
+
+            <div className="space-y-2 border-t border-slate-800 pt-3">
+              {/* Ruta cerrada: regreso al almacén (bloqueado como destino final) */}
+              {closed && (
+                <button onClick={() => handleSelectNext({ id: startId, name: startName })}
+                  className="flex w-full items-center gap-3 rounded-lg border border-amber-800/40 bg-amber-950/20 px-3 py-2.5 text-left transition hover:border-amber-700/50">
+                  <Navigation size={14} className="shrink-0 text-amber-400" />
+                  <span className="text-sm text-amber-300">Regresar al almacén (cerrar ruta)</span>
+                  <ChevronRight size={14} className="ml-auto text-amber-700" />
+                </button>
+              )}
+              {/* Ruta abierta: terminar aquí */}
+              {!closed && route.length >= 2 && (
+                <Btn variant="success" onClick={handleTerminate} disabled={saving} className="w-full justify-center">
+                  <Flag size={16} /> Terminar ruta aquí
+                </Btn>
+              )}
+            </div>
+            {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+          </>
+        )}
+
+        {/* Fase: viajando */}
+        {phase === "traveling" && nextStop && (
+          <>
+            <h3 className="mb-3 text-sm font-semibold text-slate-200">En camino a {nextStop.name}</h3>
+            <div className="mb-3">
+              <Field label="Km recorridos en este tramo">
+                <input className={inputCls} type="number" min="0" step="0.1"
+                  value={nextLegKm} onChange={(e) => patch({ nextLegKm: e.target.value })}
+                  placeholder="Ej. 12.5" />
+              </Field>
+            </div>
+            {pendingLegBreakMin > 0 && !onBreak && (
+              <p className="mb-2 text-xs text-orange-300">🍽 Comida registrada: {fmtMin(pendingLegBreakMin)} (se descontará del tramo)</p>
+            )}
+            {/* Pausa activa */}
+            {onBreak ? (
+              <div className="mb-3 rounded-lg border border-orange-800/50 bg-orange-950/20 p-3">
+                <p className="mb-2 text-sm font-semibold text-orange-300">🍽 Comida en curso — desde {fmtTime(breakStart)}</p>
+                <Field label="Lugar / nota (opcional)">
+                  <input className={inputCls} value={breakNoteInput} onChange={(e) => setBreakNoteInput(e.target.value)} placeholder="Ej. Tacos Reforma" />
+                </Field>
+                <Btn onClick={handleEndBreak} className="mt-2 w-full justify-center border border-orange-700/50 bg-orange-900/30 text-orange-200 hover:bg-orange-800/40">
+                  ✓ Terminar comida
+                </Btn>
+              </div>
+            ) : (
+              <button onClick={handleStartBreak}
+                className="mb-3 flex w-full items-center gap-2 rounded-lg border border-orange-900/30 bg-orange-950/10 px-3 py-2 text-sm text-orange-300 transition hover:bg-orange-950/25">
+                <span>🍽</span> Comida / Pausa
+              </button>
+            )}
+            {err && <p className="mb-2 text-xs text-rose-400">{err}</p>}
+            <Btn onClick={handleArrival} disabled={saving || onBreak} className="w-full justify-center">
+              <MapPin size={16} /> Llegada a {nextStop.name}
+            </Btn>
+          </>
+        )}
+      </Card>
+    </div>
   );
 }
 

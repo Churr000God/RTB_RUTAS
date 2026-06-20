@@ -51,6 +51,17 @@ export async function addPunto(p) {
   return mapPunto(data);
 }
 
+export async function updatePunto(id, p) {
+  const { data, error } = await supabase
+    .from("puntos")
+    .update({ nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return mapPunto(data);
+}
+
 export async function removePunto(id) {
   // Como las paradas viven en JSONB (sin FK), limpiamos manualmente las
   // referencias a este punto dentro de los recorridos antes de borrarlo.
