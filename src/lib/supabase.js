@@ -103,6 +103,31 @@ export async function removeRecorrido(id) {
   if (error) throw error;
 }
 
+/* ----------------------- Rutas guardadas -------------------------- */
+// Planes de ruta diseñados con antelación, compartidos entre dispositivos.
+const mapRutaG = (r) => ({ id: r.id, nombre: r.nombre, fecha: r.fecha, closed: r.closed, stops: r.stops });
+
+export async function getRutasGuardadas() {
+  const { data, error } = await supabase.from("rutas_guardadas").select("*").order("fecha", { nullsFirst: false }).order("created_at");
+  if (error) throw error;
+  return data.map(mapRutaG);
+}
+
+export async function addRutaGuardada(r) {
+  const { data, error } = await supabase
+    .from("rutas_guardadas")
+    .insert({ nombre: r.nombre, fecha: r.fecha || null, closed: r.closed, stops: r.stops })
+    .select()
+    .single();
+  if (error) throw error;
+  return mapRutaG(data);
+}
+
+export async function removeRutaGuardada(id) {
+  const { error } = await supabase.from("rutas_guardadas").delete().eq("id", id);
+  if (error) throw error;
+}
+
 /* ------------------ Importar JSON / Borrar todo ------------------- */
 // Conserva los id del JSON para no romper las referencias dentro de stops.
 const IMPOSSIBLE = "00000000-0000-0000-0000-000000000000";

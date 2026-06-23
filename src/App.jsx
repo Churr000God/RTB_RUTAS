@@ -3,7 +3,7 @@ import {
   Truck, MapPin, Clock, Route, Plus, Trash2, Download, Upload, Zap,
   ChevronRight, AlertTriangle, Database, Map, GitCompare, X, Save,
   TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
-  Navigation, Flag
+  Navigation, Flag, Calendar, BookMarked
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -11,7 +11,8 @@ import {
 import {
   getSession, signIn, signOut, onAuth,
   getPuntos, addPunto, updatePunto, removePunto,
-  getRecorridos, addRecorrido, replaceAll
+  getRecorridos, addRecorrido, replaceAll,
+  getRutasGuardadas, addRutaGuardada, removeRutaGuardada,
 } from "./lib/supabase";
 
 /* ============================================================
@@ -323,10 +324,12 @@ export default function OptimizadorRutas() {
   const [tab, setTab] = useState("optimizar");
   const [points, setPoints] = useState([]);
   const [recorridos, setRecorridos] = useState([]);
+  const [rutasGuardadas, setRutasGuardadas] = useState([]);
 
   const refresh = useCallback(async () => {
     const [p, r] = await Promise.all([getPuntos(), getRecorridos()]);
     setPoints(p); setRecorridos(r);
+    try { setRutasGuardadas(await getRutasGuardadas()); } catch { /* tabla aún no creada en Supabase */ }
   }, []);
 
   useEffect(() => {
@@ -339,7 +342,7 @@ export default function OptimizadorRutas() {
       sub = onAuth(async (ns) => {
         setSession(ns);
         if (ns) { try { await refresh(); } catch (e) { console.error(e); } }
-        else { setPoints([]); setRecorridos([]); }
+        else { setPoints([]); setRecorridos([]); setRutasGuardadas([]); }
       });
     })();
     return () => sub?.data?.subscription?.unsubscribe?.();
@@ -367,6 +370,10 @@ export default function OptimizadorRutas() {
     });
     setTab("ruta-dia");
   };
+
+  const onSaveRutaGuardada = async (r) => { const rg = await addRutaGuardada(r); setRutasGuardadas((prev) => [...prev, rg]); };
+  const onDeleteRutaGuardada = async (id) => { await removeRutaGuardada(id); setRutasGuardadas((prev) => prev.filter((r) => r.id !== id)); };
+  const onLoadRutaGuardada = (r) => onLoadRutaDia({ title: r.nombre, stops: r.stops, closed: r.closed });
 
   const onAddPunto = async (p) => { await addPunto(p); await refresh(); };
   const onUpdatePunto = async (id, p) => { await updatePunto(id, p); await refresh(); };
@@ -425,8 +432,8 @@ export default function OptimizadorRutas() {
         {tab === "registrar" && <RegistrarTab points={points} onAddRecorrido={onAddRecorrido} />}
         {tab === "ahorro" && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz" && <MatrizTab points={points} segments={obs.segments} />}
-        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} />}
-        {tab === "ruta-dia" && <RutaDiaTab rutaDia={rutaDia} setRutaDia={setRutaDia} onSaveRuta={onAddRecorrido} allPoints={points} />}
+        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} onSaveRutaGuardada={onSaveRutaGuardada} />}
+        {tab === "ruta-dia" && <RutaDiaTab rutaDia={rutaDia} setRutaDia={setRutaDia} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} />}
         {tab === "datos" && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
       </div>
     </div>
@@ -943,7 +950,7 @@ function MatrizTab({ points, segments }) {
 /* ============================================================
    Tab: Optimizar
    ============================================================ */
-function OptimizarTab({ points, segments, waits, onLoadRutaDia }) {
+function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuardada }) {
   const [selected, setSelected] = useState(() => new Set());
   const [startId, setStartId] = useState("");
   const [closed, setClosed] = useState(true);
@@ -1041,8 +1048,8 @@ function OptimizarTab({ points, segments, waits, onLoadRutaDia }) {
       {result?.error && <Card className="border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-300"><AlertTriangle size={16} className="mb-1 inline" /> {result.error}</Card>}
       {result && !result.error && (
         <div className="grid gap-4 md:grid-cols-2">
-          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} />
-          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} />
+          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} />
+          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} />
           {result.byTime?.seqNames && result.byDist?.seqNames && (
             <div className="md:col-span-2">
               <Card className="flex items-center gap-3 p-3 text-xs text-slate-400">
@@ -1059,8 +1066,13 @@ function OptimizarTab({ points, segments, waits, onLoadRutaDia }) {
     </div>
   );
 }
-function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0 }) {
+function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0, onSaveRuta }) {
   const accentCls = accent === "amber" ? "text-amber-400" : "text-sky-400";
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [saveNombre, setSaveNombre] = useState("");
+  const [saveFecha, setSaveFecha] = useState(tomorrow);
+  const [savingRuta, setSavingRuta] = useState(false);
   if (!data) return null;
   if (data.unavailable) return (
     <Card className="p-4">
@@ -1105,6 +1117,57 @@ function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin
           <Navigation size={15} /> Cargar como ruta del día
         </Btn>
       )}
+      {onSaveRuta && data.seqIds && (
+        !showSaveForm ? (
+          <Btn variant="ghost" onClick={() => setShowSaveForm(true)} className="mt-1 w-full justify-center text-slate-400">
+            <BookMarked size={15} /> Guardar ruta con nombre
+          </Btn>
+        ) : (
+          <div className="mt-2 space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+            <Field label="Nombre de la ruta">
+              <input
+                className={inputCls}
+                value={saveNombre}
+                onChange={(e) => setSaveNombre(e.target.value)}
+                placeholder="Ej. Ruta lunes centro"
+                autoFocus
+              />
+            </Field>
+            <Field label="Fecha">
+              <input
+                className={inputCls}
+                type="date"
+                value={saveFecha}
+                onChange={(e) => setSaveFecha(e.target.value)}
+              />
+            </Field>
+            <div className="flex gap-2">
+              <Btn
+                disabled={savingRuta || !saveNombre.trim()}
+                onClick={async () => {
+                  setSavingRuta(true);
+                  try {
+                    await onSaveRuta({
+                      nombre: saveNombre.trim(),
+                      fecha: saveFecha || null,
+                      closed,
+                      stops: data.seqIds.map((id, i) => ({ id, name: data.seqNames[i] })),
+                    });
+                    setSaveNombre("");
+                    setShowSaveForm(false);
+                  } finally { setSavingRuta(false); }
+                }}
+                className="flex-1 justify-center"
+              >
+                <Save size={14} /> {savingRuta ? "Guardando…" : "Guardar"}
+              </Btn>
+              <Btn variant="ghost" onClick={() => { setShowSaveForm(false); setSaveNombre(""); }} className="flex-1 justify-center">
+                <X size={14} /> Cancelar
+              </Btn>
+            </div>
+          </div>
+        )
+      )}
     </Card>
   );
 }
@@ -1112,7 +1175,7 @@ function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin
 /* ============================================================
    Tab: Ruta del día
    ============================================================ */
-function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints }) {
+function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas = [], onLoadRutaGuardada, onDeleteRutaGuardada }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [extraSearch, setExtraSearch] = useState("");
@@ -1124,12 +1187,56 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints }) {
 
   if (!rutaDia) {
     return (
-      <Card className="p-6">
-        <Empty>
-          No hay ruta del día cargada. Ve a <span className="text-amber-400">Optimizar</span>, calcula
-          una ruta y presiona <span className="text-amber-400">"Cargar como ruta del día"</span>.
-        </Empty>
-      </Card>
+      <div className="space-y-4">
+        <Card className="p-6">
+          <Empty>
+            No hay ruta del día cargada. Ve a <span className="text-amber-400">Optimizar</span>, calcula
+            una ruta y presiona <span className="text-amber-400">"Cargar como ruta del día"</span>.
+          </Empty>
+        </Card>
+        {rutasGuardadas.length > 0 && (
+          <Card className="p-4">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
+              <BookMarked size={15} className="text-amber-400" /> Rutas guardadas
+            </h3>
+            <ul className="space-y-2">
+              {rutasGuardadas.map((r) => (
+                <li key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-200">{r.nombre}</div>
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                      {r.fecha && (
+                        <span className="flex items-center gap-1">
+                          <Calendar size={11} /> {r.fecha}
+                        </span>
+                      )}
+                      <span>{r.stops.length} paradas</span>
+                      {r.stops.length > 0 && (
+                        <span className="text-slate-600">
+                          {r.stops[0]?.name} → {r.stops[r.stops.length - 1]?.name}
+                        </span>
+                      )}
+                      <span className="text-slate-600">{r.closed ? "Cerrada" : "Abierta"}</span>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Btn onClick={() => onLoadRutaGuardada(r)} className="py-1 px-2.5 text-xs">
+                      <Navigation size={13} /> Cargar
+                    </Btn>
+                    <Btn
+                      variant="ghost"
+                      onClick={() => { if (confirm(`¿Eliminar "${r.nombre}"?`)) onDeleteRutaGuardada(r.id); }}
+                      className="py-1 px-2 text-rose-400 hover:text-rose-300"
+                    >
+                      <Trash2 size={13} />
+                    </Btn>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </div>
     );
   }
 

@@ -54,6 +54,29 @@ create policy "recorridos: acceso total autenticados"
   to authenticated
   using (true) with check (true);
 
+-- ---------------------------------------------------------------------
+-- rutas_guardadas: planes de ruta diseñados con antelación
+-- Permiten diseñar la ruta en la laptop y cargarla al día siguiente
+-- desde cualquier dispositivo autenticado (ej. el teléfono del chofer).
+-- stops = [{id, name}] en orden; stops[0] = punto de inicio/almacén.
+-- Ejecuta este bloque en: Supabase Dashboard → SQL Editor → New query → Run
+-- ---------------------------------------------------------------------
+create table if not exists public.rutas_guardadas (
+  id         uuid primary key default gen_random_uuid(),
+  nombre     text not null,
+  fecha      date,                        -- día planeado para ejecutarla (opcional)
+  closed     boolean not null default true,
+  stops      jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.rutas_guardadas enable row level security;
+
+create policy "rutas_guardadas: acceso total autenticados"
+  on public.rutas_guardadas for all
+  to authenticated
+  using (true) with check (true);
+
 -- =====================================================================
 -- (Opcional) Datos por usuario en vez de compartidos:
 --   alter table public.recorridos add column owner uuid default auth.uid();
