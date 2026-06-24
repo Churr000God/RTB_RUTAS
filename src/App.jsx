@@ -1,18 +1,23 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+
+const SUPERADMIN_ID = "5ecb861d-7d41-4d01-a916-72eb1c2b1817";
 import {
   Truck, MapPin, Clock, Route, Plus, Trash2, Download, Upload, Zap,
   ChevronRight, AlertTriangle, Database, Map, GitCompare, X, Save,
   TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
-  Navigation, Flag, Calendar, BookMarked
+  Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
 import {
+  supabase,
   getSession, signIn, signOut, onAuth,
+  getMyProfile, getProfiles, ensureMyProfile, updateProfile,
   getPuntos, addPunto, updatePunto, removePunto,
   getRecorridos, addRecorrido, replaceAll,
-  getRutasGuardadas, addRutaGuardada, removeRutaGuardada,
+  getRutasGuardadas, addRutaGuardada, updateRutaGuardada, removeRutaGuardada,
+  getAllRutasActivas, saveRutaActiva, clearRutaActiva, subscribeRutasActivas,
 } from "./lib/supabase";
 
 /* ============================================================
@@ -321,19 +326,78 @@ function LoginGate() {
 export default function OptimizadorRutas() {
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState(null);
-  const [tab, setTab] = useState("optimizar");
+  const [profile, setProfile] = useState(null);   // { userId, nombre, role }
+  const [profiles, setProfiles] = useState([]);    // todos los perfiles (para asignación y monitor)
+  const [tab, setTab] = useState("ruta-dia");
   const [points, setPoints] = useState([]);
   const [recorridos, setRecorridos] = useState([]);
   const [rutasGuardadas, setRutasGuardadas] = useState([]);
 
+  // Ruta del día propia (React state; se persiste a Supabase vía updateRutaDia)
+  const [rutaDia, setRutaDia] = useState(null);
+
+  // Mapa driverId → { driverNombre, state } con todas las rutas activas
+  // (admin ve todas, driver solo la suya por RLS; se actualiza en vivo vía realtime)
+  const [activeRoutes, setActiveRoutes] = useState({});
+
+  // Sello de la última escritura local: evita que el eco del realtime
+  // sobreescriba el estado que acabamos de guardar desde este mismo dispositivo.
+  const lastWriteRef = useRef(0);
+  const profileRef = useRef(null);   // copia sin stale-closure para el callback de realtime
+
+  // Wrapper que persiste el progreso a Supabase y actualiza el estado local.
+  // Recibe profile como parámetro para evitar stale-closure (se llama desde callbacks).
+  const updateRutaDia = useCallback((next, prof) => {
+    setRutaDia(next);
+    const p = prof ?? profileRef.current;
+    if (!p) return;
+    const stamp = Date.now();
+    lastWriteRef.current = stamp;
+    (async () => {
+      try {
+        if (next && !next.done) {
+          await saveRutaActiva(p.userId, p.nombre, { ...next, _w: stamp });
+        } else {
+          await clearRutaActiva(p.userId);
+        }
+      } catch (e) { console.error("ruta_activa sync:", e); }
+    })();
+  }, []);
+
   const refresh = useCallback(async () => {
-    const [p, r] = await Promise.all([getPuntos(), getRecorridos()]);
-    setPoints(p); setRecorridos(r);
-    try { setRutasGuardadas(await getRutasGuardadas()); } catch { /* tabla aún no creada en Supabase */ }
+    const [p, r, rawProf, profs, rutas, activas] = await Promise.all([
+      getPuntos(), getRecorridos(),
+      getMyProfile(), getProfiles(),
+      getRutasGuardadas().catch(() => []),
+      getAllRutasActivas().catch(() => []),
+    ]);
+    // Auto-crear perfil en primer login: usa la parte del email antes del @
+    let prof = rawProf;
+    if (!prof) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const defaultNombre = user.email?.split("@")[0] ?? "Usuario";
+        prof = await ensureMyProfile(defaultNombre);
+        // Recargar lista de perfiles para que el nuevo aparezca
+        const freshProfs = await getProfiles();
+        setProfiles(freshProfs);
+      }
+    }
+    setPoints(p);
+    setRecorridos(r);
+    setProfile(prof);
+    profileRef.current = prof;
+    setProfiles(profs);
+    setRutasGuardadas(rutas);
+    const map = {};
+    for (const ra of activas) map[ra.driverId] = ra;
+    setActiveRoutes(map);
+    if (prof) setRutaDia(activas.find((ra) => ra.driverId === prof.userId)?.state ?? null);
   }, []);
 
   useEffect(() => {
     let sub;
+    let realtimeChannel;
     (async () => {
       const s = await getSession();
       setSession(s);
@@ -342,22 +406,55 @@ export default function OptimizadorRutas() {
       sub = onAuth(async (ns) => {
         setSession(ns);
         if (ns) { try { await refresh(); } catch (e) { console.error(e); } }
-        else { setPoints([]); setRecorridos([]); setRutasGuardadas([]); }
+        else {
+          setProfile(null); profileRef.current = null;
+          setProfiles([]); setPoints([]); setRecorridos([]);
+          setRutasGuardadas([]); setRutaDia(null); setActiveRoutes({});
+        }
       });
     })();
-    return () => sub?.data?.subscription?.unsubscribe?.();
+
+    // Suscripción realtime: actualiza rutas activas en vivo (admin ve todas, driver solo la suya)
+    try {
+      realtimeChannel = subscribeRutasActivas(({ eventType, driverId, state }) => {
+        setActiveRoutes((prev) => {
+          if (eventType === "DELETE") {
+            const next = { ...prev };
+            delete next[driverId];
+            return next;
+          }
+          return { ...prev, [driverId]: { driverId, driverNombre: state?.driverNombre, state } };
+        });
+        // Actualizar rutaDia propia (ignorando eco de escritura local)
+        const myId = profileRef.current?.userId;
+        if (driverId === myId) {
+          if (state?._w !== undefined && state._w === lastWriteRef.current) return;
+          setRutaDia(eventType === "DELETE" ? null : state);
+        }
+      });
+    } catch (e) { console.error("subscribeRutasActivas:", e); }
+
+    return () => {
+      sub?.data?.subscription?.unsubscribe?.();
+      if (realtimeChannel) { try { realtimeChannel.unsubscribe(); } catch {} }
+    };
   }, [refresh]);
 
-  const [rutaDia, setRutaDia] = useState(null);
+  // Bloqueo del driver: si tiene ruta activa no terminada, forzar a ruta-dia
+  const isDriver = profile?.role === "driver";
+  const isAdmin  = profile?.role === "admin";
+  const driverBlocked = isDriver && rutaDia && !rutaDia.done;
+  useEffect(() => {
+    if (driverBlocked) setTab("ruta-dia");
+  }, [driverBlocked]);
 
   const onLoadRutaDia = ({ title, stops, closed }) => {
     if (rutaDia && !rutaDia.done) {
       if (!confirm("Ya hay una ruta activa. ¿Reemplazarla?")) return;
     }
     const startStop = stops[0];
-    setRutaDia({
-      title,
-      closed,
+    const next = {
+      title, closed,
       startId: startStop.id,
       startName: startStop.name,
       endId: closed ? startStop.id : null,
@@ -367,31 +464,66 @@ export default function OptimizadorRutas() {
       nextStop: null,
       nextLegKm: "",
       done: false,
-    });
+    };
+    updateRutaDia(next, profile);
     setTab("ruta-dia");
   };
 
-  const onSaveRutaGuardada = async (r) => { const rg = await addRutaGuardada(r); setRutasGuardadas((prev) => [...prev, rg]); };
-  const onDeleteRutaGuardada = async (id) => { await removeRutaGuardada(id); setRutasGuardadas((prev) => prev.filter((r) => r.id !== id)); };
+  const onSaveRutaGuardada = async (r) => {
+    const rg = await addRutaGuardada(r);
+    setRutasGuardadas((prev) => [...prev, rg]);
+  };
+  const onUpdateRutaGuardada = async (id, r) => {
+    const rg = await updateRutaGuardada(id, r);
+    setRutasGuardadas((prev) => prev.map((x) => (x.id === id ? rg : x)));
+  };
+  const onDeleteRutaGuardada = async (id) => {
+    await removeRutaGuardada(id);
+    setRutasGuardadas((prev) => prev.filter((r) => r.id !== id));
+  };
   const onLoadRutaGuardada = (r) => onLoadRutaDia({ title: r.nombre, stops: r.stops, closed: r.closed });
+  const onLiberarRuta = async (driverId) => {
+    if (!confirm("¿Liberar / cancelar la ruta de este chofer?")) return;
+    try { await clearRutaActiva(driverId); } catch (e) { console.error(e); }
+  };
 
   const onAddPunto = async (p) => { await addPunto(p); await refresh(); };
   const onUpdatePunto = async (id, p) => { await updatePunto(id, p); await refresh(); };
   const onRemovePunto = async (id) => { await removePunto(id); await refresh(); };
-  const onAddRecorrido = async (r) => { await addRecorrido(r); await refresh(); };
+  const onAddRecorrido = async (r) => {
+    await addRecorrido(r);
+    // La ruta terminada ya se limpió de ruta_activa en saveRoute; forzar limpiar estado local
+    setRutaDia(null);
+    await refresh();
+  };
   const onReplaceAll = async (p, r) => { await replaceAll(p, r); await refresh(); };
+  const onUpdateProfileRole = async (userId, nombre, role) => {
+    await updateProfile(userId, { nombre, role });
+    setProfiles((prev) => prev.map((p) => p.userId === userId ? { ...p, nombre, role } : p));
+    // Si el admin se cambia a sí mismo, actualizar su propio perfil en estado
+    if (profile?.userId === userId) setProfile((prev) => ({ ...prev, nombre, role }));
+  };
 
   const obs = useMemo(() => deriveObservations(recorridos), [recorridos]);
 
-  const tabs = [
-    { id: "optimizar", label: "Optimizar", icon: Zap },
-    { id: "ruta-dia", label: "Ruta del día", icon: Navigation },
-    { id: "registrar", label: "Registrar recorrido", icon: Clock },
-    { id: "ahorro", label: "Análisis de ahorro", icon: TrendingDown },
-    { id: "puntos", label: "Puntos", icon: MapPin },
-    { id: "matriz", label: "Matriz aprendida", icon: Map },
-    { id: "datos", label: "Datos", icon: Database },
+  // Pestañas según rol:
+  // - driver: solo "Ruta del día" (si está bloqueado, es la única)
+  // - admin: todas + Monitor
+  const allTabs = [
+    { id: "ruta-dia",   label: "Ruta del día",        icon: Navigation,  roles: ["admin","driver"] },
+    { id: "monitor",    label: "Monitor",              icon: Radio,       roles: ["admin"] },
+    { id: "optimizar",  label: "Optimizar",            icon: Zap,         roles: ["admin"] },
+    { id: "registrar",  label: "Registrar recorrido",  icon: Clock,       roles: ["admin"] },
+    { id: "ahorro",     label: "Análisis de ahorro",   icon: TrendingDown,roles: ["admin"] },
+    { id: "puntos",     label: "Puntos",               icon: MapPin,      roles: ["admin"] },
+    { id: "matriz",     label: "Matriz aprendida",     icon: Map,         roles: ["admin"] },
+    { id: "datos",      label: "Datos",                icon: Database,    roles: ["admin"] },
+    { id: "usuarios",   label: "Usuarios",             icon: UserCog,     roles: ["admin"] },
   ];
+  const role = profile?.role ?? "driver";
+  const tabs = driverBlocked
+    ? allTabs.filter((t) => t.id === "ruta-dia")
+    : allTabs.filter((t) => t.roles.includes(role));
 
   if (!loaded) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-500">Cargando…</div>;
   if (!session) return <LoginGate />;
@@ -403,39 +535,224 @@ export default function OptimizadorRutas() {
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500 text-slate-950"><Truck size={24} /></div>
           <div>
             <h1 className="text-lg font-bold leading-tight">Despacho RTB · Optimizador de Rutas</h1>
-            <p className="text-xs text-slate-500">Aprende tiempos reales, optimiza y mide cuánto estás ahorrando</p>
+            <p className="text-xs text-slate-500">
+              {profile
+                ? <>{isAdmin ? <ShieldCheck size={11} className="inline mr-0.5 text-amber-400" /> : null}{profile.nombre} · {isAdmin ? "Admin" : "Chofer"}</>
+                : "Aprende tiempos reales, optimiza y mide cuánto estás ahorrando"}
+            </p>
           </div>
           <div className="ml-auto flex items-center gap-4">
-            <div className="hidden text-right text-xs text-slate-500 sm:block">
-              <div><span className="font-mono text-slate-300">{points.length}</span> puntos</div>
-              <div><span className="font-mono text-slate-300">{recorridos.length}</span> recorridos</div>
-            </div>
+            {isAdmin && (
+              <div className="hidden text-right text-xs text-slate-500 sm:block">
+                <div><span className="font-mono text-slate-300">{points.length}</span> puntos</div>
+                <div><span className="font-mono text-slate-300">{recorridos.length}</span> recorridos</div>
+              </div>
+            )}
             <button onClick={signOut} title="Cerrar sesión" className="text-slate-500 hover:text-slate-300"><LogOut size={18} /></button>
           </div>
         </header>
 
-        <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/50 p-1">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const hasActive = t.id === "ruta-dia" && rutaDia && !rutaDia.done;
-            return (
-              <button key={t.id} onClick={() => setTab(t.id)}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition ${tab === t.id ? "bg-slate-800 text-amber-400" : "text-slate-400 hover:text-slate-200"}`}>
-                <Icon size={15} /> {t.label}
-                {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-              </button>
-            );
-          })}
-        </nav>
+        {tabs.length > 1 && (
+          <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/50 p-1">
+            {tabs.map((t) => {
+              const Icon = t.icon;
+              const hasActive = t.id === "ruta-dia" && rutaDia && !rutaDia.done;
+              const monitorCount = t.id === "monitor" ? Object.keys(activeRoutes).length : 0;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition ${tab === t.id ? "bg-slate-800 text-amber-400" : "text-slate-400 hover:text-slate-200"}`}>
+                  <Icon size={15} /> {t.label}
+                  {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+                  {monitorCount > 0 && (
+                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-teal-600 px-1 text-[10px] font-bold text-white">{monitorCount}</span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
-        {tab === "puntos" && <PuntosTab points={points} onAddPunto={onAddPunto} onUpdatePunto={onUpdatePunto} onRemovePunto={onRemovePunto} />}
+        {tab === "puntos"    && <PuntosTab points={points} onAddPunto={onAddPunto} onUpdatePunto={onUpdatePunto} onRemovePunto={onRemovePunto} />}
         {tab === "registrar" && <RegistrarTab points={points} onAddRecorrido={onAddRecorrido} />}
-        {tab === "ahorro" && <AhorroTab points={points} recorridos={recorridos} />}
-        {tab === "matriz" && <MatrizTab points={points} segments={obs.segments} />}
-        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} onSaveRutaGuardada={onSaveRutaGuardada} />}
-        {tab === "ruta-dia" && <RutaDiaTab rutaDia={rutaDia} setRutaDia={setRutaDia} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} />}
-        {tab === "datos" && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
+        {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
+        {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
+        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} onSaveRutaGuardada={onSaveRutaGuardada} profiles={profiles} />}
+        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isAdmin} profiles={profiles} />}
+        {tab === "monitor"   && <MonitorTab activeRoutes={activeRoutes} profiles={profiles} onLiberar={onLiberarRuta} />}
+        {tab === "datos"     && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
+        {tab === "usuarios"  && <UsuariosTab profiles={profiles} currentUserId={profile?.userId} onUpdate={onUpdateProfileRole} />}
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Tab: Monitor (admin) — rutas activas de todos los choferes en vivo
+   ============================================================ */
+/* ============================================================
+   Tab: Usuarios (admin) — gestión de roles
+   ============================================================ */
+function UsuariosTab({ profiles, currentUserId, onUpdate }) {
+  const [editing, setEditing] = useState({});   // userId → { nombre, role }
+  const [saving, setSaving] = useState({});     // userId → bool
+  const [saved, setSaved] = useState({});       // userId → bool (tick temporal)
+
+  const startEdit = (p) => setEditing((prev) => ({ ...prev, [p.userId]: { nombre: p.nombre, role: p.role } }));
+  const cancelEdit = (userId) => setEditing((prev) => { const n = { ...prev }; delete n[userId]; return n; });
+
+  const save = async (userId) => {
+    const { nombre, role } = editing[userId];
+    if (!nombre.trim()) return;
+    setSaving((prev) => ({ ...prev, [userId]: true }));
+    try {
+      await onUpdate(userId, nombre.trim(), role);
+      setSaved((prev) => ({ ...prev, [userId]: true }));
+      setTimeout(() => setSaved((prev) => { const n = { ...prev }; delete n[userId]; return n; }), 2000);
+      cancelEdit(userId);
+    } catch (e) { console.error(e); }
+    finally { setSaving((prev) => { const n = { ...prev }; delete n[userId]; return n; }); }
+  };
+
+  if (profiles.length === 0) {
+    return (
+      <Card className="p-8 text-center">
+        <UserCog size={36} className="mx-auto mb-3 text-slate-600" />
+        <p className="text-sm text-slate-400">No hay perfiles registrados.</p>
+        <p className="mt-1 text-xs text-slate-600">Los usuarios se crean en Supabase Dashboard y aparecen aquí al hacer su primer login.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        Los usuarios se crean en <span className="text-slate-300">Supabase → Authentication → Users</span>. Al hacer su primer login aparecen aquí como <span className="text-amber-400">driver</span> y puedes cambiarles el rol.
+      </p>
+      {profiles.map((p) => {
+        const ed = editing[p.userId];
+        const isSaving = saving[p.userId];
+        const isSaved = saved[p.userId];
+        const isMe = p.userId === currentUserId;
+        const isSuperAdmin = p.userId === SUPERADMIN_ID;
+        return (
+          <Card key={p.userId} className="p-4">
+            {ed ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <UserCog size={14} className="text-amber-400" />
+                  <span className="text-xs text-slate-400 font-mono">{p.userId.slice(0, 8)}…</span>
+                  {isMe && <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">tú</span>}
+                  {isSuperAdmin && <span className="rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] text-amber-300">acceso maestro</span>}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Field label="Nombre">
+                    <input
+                      className={inputCls}
+                      value={ed.nombre}
+                      onChange={(e) => setEditing((prev) => ({ ...prev, [p.userId]: { ...prev[p.userId], nombre: e.target.value } }))}
+                    />
+                  </Field>
+                  <Field label="Rol">
+                    {isSuperAdmin ? (
+                      <div className={inputCls + " flex items-center gap-2 cursor-not-allowed opacity-60"}>
+                        <span className="flex-1 text-amber-300">admin — Administrador</span>
+                        <span className="text-[10px] text-slate-500">bloqueado</span>
+                      </div>
+                    ) : (
+                      <select
+                        className={inputCls}
+                        value={ed.role}
+                        onChange={(e) => setEditing((prev) => ({ ...prev, [p.userId]: { ...prev[p.userId], role: e.target.value } }))}
+                      >
+                        <option value="driver">driver — Chofer</option>
+                        <option value="admin">admin — Administrador</option>
+                      </select>
+                    )}
+                  </Field>
+                </div>
+                <div className="flex gap-2">
+                  <Btn onClick={() => save(p.userId)} disabled={isSaving || !ed.nombre.trim()} className="py-1 px-3 text-xs">
+                    <Save size={12} /> {isSaving ? "Guardando…" : "Guardar"}
+                  </Btn>
+                  <Btn variant="ghost" onClick={() => cancelEdit(p.userId)} className="py-1 px-3 text-xs">Cancelar</Btn>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-200">{p.nombre}</span>
+                    {isMe && <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">tú</span>}
+                    {isSuperAdmin && <span className="rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] text-amber-300">acceso maestro</span>}
+                    {isSaved && <CheckCircle2 size={13} className="text-teal-400" />}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                    <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${p.role === "admin" ? "bg-amber-900/40 text-amber-300" : "bg-slate-800 text-slate-400"}`}>{p.role}</span>
+                    {isSuperAdmin && <span className="text-slate-600">rol permanente</span>}
+                    <span className="text-slate-700">{p.userId.slice(0, 8)}…</span>
+                  </div>
+                </div>
+                <Btn variant="ghost" onClick={() => startEdit(p)} className="py-1 px-2 text-slate-400 hover:text-slate-200 shrink-0">
+                  <Pencil size={13} />
+                </Btn>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function MonitorTab({ activeRoutes, profiles, onLiberar }) {
+  const entries = Object.values(activeRoutes);
+  if (entries.length === 0) {
+    return (
+      <Card className="p-8 text-center">
+        <Radio size={36} className="mx-auto mb-3 text-slate-600" />
+        <p className="text-sm text-slate-400">No hay rutas en curso en este momento.</p>
+      </Card>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">{entries.length} {entries.length === 1 ? "ruta activa" : "rutas activas"} · actualización en vivo</p>
+      {entries.map(({ driverId, driverNombre, state }) => {
+        if (!state) return null;
+        const { title, route = [], remaining = [], phase, done } = state;
+        const phaseLabel = { initial: "En espera", "at-stop": "En parada", "choose-next": "Eligiendo destino", traveling: "En camino" }[phase] ?? phase;
+        return (
+          <Card key={driverId} className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <Users size={14} className="shrink-0 text-amber-400" />
+                  <span className="text-sm font-semibold text-slate-200">{driverNombre ?? "Chofer"}</span>
+                  {done && <span className="rounded bg-teal-900/60 px-1.5 py-0.5 text-[10px] text-teal-300">Terminada</span>}
+                </div>
+                <p className="text-xs text-slate-400 mb-2">{title}</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                  <span><span className="font-mono text-teal-300">{route.length}</span> visitadas</span>
+                  <span><span className="font-mono text-slate-300">{remaining.length}</span> pendientes</span>
+                  <span className="text-slate-600">Fase: <span className="text-slate-400">{phaseLabel}</span></span>
+                  {route.length > 0 && (
+                    <span className="text-slate-600">Última: <span className="text-slate-300">{route[route.length - 1]?.name}</span></span>
+                  )}
+                </div>
+              </div>
+              {!done && (
+                <Btn
+                  variant="ghost"
+                  onClick={() => onLiberar(driverId)}
+                  className="shrink-0 py-1 px-2.5 text-xs text-rose-400 hover:text-rose-300"
+                >
+                  <X size={13} /> Liberar
+                </Btn>
+              )}
+            </div>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -950,7 +1267,7 @@ function MatrizTab({ points, segments }) {
 /* ============================================================
    Tab: Optimizar
    ============================================================ */
-function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuardada }) {
+function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuardada, profiles = [] }) {
   const [selected, setSelected] = useState(() => new Set());
   const [startId, setStartId] = useState("");
   const [closed, setClosed] = useState(true);
@@ -1048,8 +1365,8 @@ function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuarda
       {result?.error && <Card className="border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-300"><AlertTriangle size={16} className="mb-1 inline" /> {result.error}</Card>}
       {result && !result.error && (
         <div className="grid gap-4 md:grid-cols-2">
-          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} />
-          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} />
+          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} profiles={profiles} />
+          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} profiles={profiles} />
           {result.byTime?.seqNames && result.byDist?.seqNames && (
             <div className="md:col-span-2">
               <Card className="flex items-center gap-3 p-3 text-xs text-slate-400">
@@ -1066,12 +1383,13 @@ function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuarda
     </div>
   );
 }
-function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0, onSaveRuta }) {
+function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0, onSaveRuta, profiles = [] }) {
   const accentCls = accent === "amber" ? "text-amber-400" : "text-sky-400";
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [saveNombre, setSaveNombre] = useState("");
   const [saveFecha, setSaveFecha] = useState(tomorrow);
+  const [saveAssignedTo, setSaveAssignedTo] = useState("");
   const [savingRuta, setSavingRuta] = useState(false);
   if (!data) return null;
   if (data.unavailable) return (
@@ -1141,6 +1459,20 @@ function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin
                 onChange={(e) => setSaveFecha(e.target.value)}
               />
             </Field>
+            {profiles.length > 0 && (
+              <Field label="Asignar a chofer">
+                <select
+                  className={inputCls}
+                  value={saveAssignedTo}
+                  onChange={(e) => setSaveAssignedTo(e.target.value)}
+                >
+                  <option value="">— Sin asignar —</option>
+                  {profiles.map((p) => (
+                    <option key={p.userId} value={p.userId}>{p.nombre} ({p.role})</option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <div className="flex gap-2">
               <Btn
                 disabled={savingRuta || !saveNombre.trim()}
@@ -1152,8 +1484,9 @@ function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin
                       fecha: saveFecha || null,
                       closed,
                       stops: data.seqIds.map((id, i) => ({ id, name: data.seqNames[i] })),
+                      assignedTo: saveAssignedTo || null,
                     });
-                    setSaveNombre("");
+                    setSaveNombre(""); setSaveAssignedTo("");
                     setShowSaveForm(false);
                   } finally { setSavingRuta(false); }
                 }}
@@ -1175,7 +1508,7 @@ function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin
 /* ============================================================
    Tab: Ruta del día
    ============================================================ */
-function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas = [], onLoadRutaGuardada, onDeleteRutaGuardada }) {
+function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas = [], onLoadRutaGuardada, onUpdateRutaGuardada, onDeleteRutaGuardada, isAdmin = false, profiles = [] }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [extraSearch, setExtraSearch] = useState("");
@@ -1184,6 +1517,24 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
   const [breakStart, setBreakStart] = useState(null);
   const [breakNoteInput, setBreakNoteInput] = useState("");
   const [pendingLegBreakMin, setPendingLegBreakMin] = useState(0); // acumulado en viaje
+  // Editor de rutas guardadas (solo admin)
+  const [editId, setEditId] = useState(null);
+  const [editStops, setEditStops] = useState([]);
+  const [editSearch, setEditSearch] = useState("");
+  const [editAssignedTo, setEditAssignedTo] = useState(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  const startEdit = (r) => { setEditId(r.id); setEditStops(r.stops); setEditSearch(""); setEditAssignedTo(r.assignedTo ?? ""); };
+  const cancelEdit = () => { setEditId(null); setEditStops([]); setEditSearch(""); setEditAssignedTo(null); };
+  const saveEdit = async (r) => {
+    if (editStops.length < 2) return;
+    setEditSaving(true);
+    try {
+      await onUpdateRutaGuardada(r.id, { nombre: r.nombre, fecha: r.fecha, closed: r.closed, stops: editStops, assignedTo: editAssignedTo || null });
+      cancelEdit();
+    } catch (e) { console.error(e); }
+    finally { setEditSaving(false); }
+  };
 
   if (!rutaDia) {
     return (
@@ -1201,36 +1552,151 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
             </h3>
             <ul className="space-y-2">
               {rutasGuardadas.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-slate-200">{r.nombre}</div>
-                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
-                      {r.fecha && (
-                        <span className="flex items-center gap-1">
-                          <Calendar size={11} /> {r.fecha}
-                        </span>
+                <li key={r.id} className="rounded-lg border border-slate-700 bg-slate-800/50">
+                  {editId === r.id ? (
+                    /* ---- Editor inline ---- */
+                    <div className="p-3 space-y-3">
+                      <p className="text-xs font-semibold text-amber-300">Editando: {r.nombre}</p>
+
+                      {/* Lista de paradas actuales con botón quitar */}
+                      <ul className="space-y-1">
+                        {editStops.map((s, idx) => (
+                          <li key={idx} className="flex items-center gap-2 rounded border border-slate-700 bg-slate-900/60 px-2.5 py-1.5">
+                            <span className="flex-1 text-xs text-slate-200">{s.name}</span>
+                            {idx === 0
+                              ? <span className="text-[10px] text-slate-500">inicio</span>
+                              : (
+                                <button
+                                  onClick={() => setEditStops((prev) => prev.filter((_, i) => i !== idx))}
+                                  className="text-rose-400 hover:text-rose-300"
+                                  title="Quitar parada"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )
+                            }
+                          </li>
+                        ))}
+                      </ul>
+
+                      {/* Buscador para agregar punto */}
+                      <div>
+                        <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Agregar parada</p>
+                        <div className="relative mb-1">
+                          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                          <input
+                            className={inputCls + " pl-8 text-xs"}
+                            placeholder="Buscar punto…"
+                            value={editSearch}
+                            onChange={(e) => setEditSearch(e.target.value)}
+                          />
+                        </div>
+                        {editSearch.trim() && (() => {
+                          const editStopIds = new Set(editStops.map((s) => s.id));
+                          const filtered = (allPoints || []).filter(
+                            (p) => !editStopIds.has(p.id) && p.name.toLowerCase().includes(editSearch.trim().toLowerCase())
+                          );
+                          return filtered.length > 0 ? (
+                            <ul className="max-h-36 space-y-1 overflow-y-auto">
+                              {filtered.map((p) => (
+                                <li key={p.id}>
+                                  <button
+                                    onClick={() => { setEditStops((prev) => [...prev, { id: p.id, name: p.name }]); setEditSearch(""); }}
+                                    className="flex w-full items-center gap-2 rounded border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-left hover:border-slate-500"
+                                  >
+                                    <span className={`h-2 w-2 shrink-0 rounded-full ${TYPE_META[p.type]?.dot ?? "bg-slate-400"}`} />
+                                    <span className="flex-1 text-xs text-slate-200">{p.name}</span>
+                                    <Plus size={12} className="text-slate-500" />
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-slate-500">Sin resultados.</p>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Selector de asignación */}
+                      {profiles.length > 0 && (
+                        <div>
+                          <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Asignar a chofer</p>
+                          <select
+                            className={inputCls + " text-xs"}
+                            value={editAssignedTo ?? ""}
+                            onChange={(e) => setEditAssignedTo(e.target.value || null)}
+                          >
+                            <option value="">— Sin asignar (cualquiera) —</option>
+                            {profiles.map((p) => (
+                              <option key={p.userId} value={p.userId}>{p.nombre} ({p.role})</option>
+                            ))}
+                          </select>
+                        </div>
                       )}
-                      <span>{r.stops.length} paradas</span>
-                      {r.stops.length > 0 && (
-                        <span className="text-slate-600">
-                          {r.stops[0]?.name} → {r.stops[r.stops.length - 1]?.name}
-                        </span>
-                      )}
-                      <span className="text-slate-600">{r.closed ? "Cerrada" : "Abierta"}</span>
+
+                      {/* Acciones */}
+                      <div className="flex gap-2">
+                        <Btn onClick={() => saveEdit(r)} disabled={editSaving || editStops.length < 2} className="py-1 px-3 text-xs">
+                          <Save size={12} /> {editSaving ? "Guardando…" : "Guardar"}
+                        </Btn>
+                        <Btn variant="ghost" onClick={cancelEdit} className="py-1 px-3 text-xs">Cancelar</Btn>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Btn onClick={() => onLoadRutaGuardada(r)} className="py-1 px-2.5 text-xs">
-                      <Navigation size={13} /> Cargar
-                    </Btn>
-                    <Btn
-                      variant="ghost"
-                      onClick={() => { if (confirm(`¿Eliminar "${r.nombre}"?`)) onDeleteRutaGuardada(r.id); }}
-                      className="py-1 px-2 text-rose-400 hover:text-rose-300"
-                    >
-                      <Trash2 size={13} />
-                    </Btn>
-                  </div>
+                  ) : (
+                    /* ---- Vista normal ---- */
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-slate-200">{r.nombre}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                          {r.fecha && (
+                            <span className="flex items-center gap-1">
+                              <Calendar size={11} /> {r.fecha}
+                            </span>
+                          )}
+                          <span>{r.stops.length} paradas</span>
+                          {r.stops.length > 0 && (
+                            <span className="text-slate-600">
+                              {r.stops[0]?.name} → {r.stops[r.stops.length - 1]?.name}
+                            </span>
+                          )}
+                          <span className="text-slate-600">{r.closed ? "Cerrada" : "Abierta"}</span>
+                          {isAdmin && r.assignedTo && (
+                            <span className="flex items-center gap-1 text-amber-600">
+                              <Users size={10} />
+                              {profiles.find((p) => p.userId === r.assignedTo)?.nombre ?? "Chofer asignado"}
+                            </span>
+                          )}
+                          {isAdmin && !r.assignedTo && (
+                            <span className="text-slate-700">Sin asignar</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <Btn onClick={() => onLoadRutaGuardada(r)} className="py-1 px-2.5 text-xs">
+                          <Navigation size={13} /> Cargar
+                        </Btn>
+                        {isAdmin && (
+                          <>
+                            <Btn
+                              variant="ghost"
+                              onClick={() => startEdit(r)}
+                              className="py-1 px-2 text-slate-400 hover:text-slate-200"
+                              title="Editar paradas"
+                            >
+                              <Pencil size={13} />
+                            </Btn>
+                            <Btn
+                              variant="ghost"
+                              onClick={() => { if (confirm(`¿Eliminar "${r.nombre}"?`)) onDeleteRutaGuardada(r.id); }}
+                              className="py-1 px-2 text-rose-400 hover:text-rose-300"
+                            >
+                              <Trash2 size={13} />
+                            </Btn>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1375,7 +1841,7 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
               {route.length} visitadas · {remaining.length} planificadas pendientes · {closed ? "Ruta cerrada" : "Ruta abierta"}
             </p>
           </div>
-          <Btn variant="danger" onClick={cancel}>Cancelar ruta</Btn>
+          {isAdmin && <Btn variant="danger" onClick={cancel}>Cancelar ruta</Btn>}
         </div>
       </Card>
 
