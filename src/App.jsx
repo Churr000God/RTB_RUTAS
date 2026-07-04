@@ -392,7 +392,21 @@ export default function OptimizadorRutas() {
     const map = {};
     for (const ra of activas) map[ra.driverId] = ra;
     setActiveRoutes(map);
-    if (prof) setRutaDia(activas.find((ra) => ra.driverId === prof.userId)?.state ?? null);
+    if (prof) {
+      const dbState = activas.find((ra) => ra.driverId === prof.userId)?.state ?? null;
+      setRutaDia((prev) => {
+        // No pisar la pantalla "done" con estado viejo del DB si acabamos de terminar la ruta
+        if (prev?.done) return prev;
+        // No pisar progreso local con una lectura del DB más vieja que nuestra última
+        // escritura (lag de replicación / refresh disparado justo después de guardar).
+        if (dbState?._w !== undefined && dbState._w <= lastWriteRef.current) return prev;
+        // Si el DB no tiene fila pero ya escribimos progreso desde este dispositivo,
+        // asumimos que es una lectura adelantada al upsert (no un borrado real):
+        // el borrado real siempre llega también por el canal realtime (DELETE).
+        if (dbState == null && prev && !prev.done && lastWriteRef.current > 0) return prev;
+        return dbState;
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -428,8 +442,15 @@ export default function OptimizadorRutas() {
         // Actualizar rutaDia propia (ignorando eco de escritura local)
         const myId = profileRef.current?.userId;
         if (driverId === myId) {
-          if (state?._w !== undefined && state._w === lastWriteRef.current) return;
-          setRutaDia(eventType === "DELETE" ? null : state);
+          // Ignorar cualquier eco igual o más viejo que nuestra última escritura local:
+          // con escrituras rápidas seguidas, el eco de una escritura anterior puede
+          // llegar después de que ya aplicamos una más nueva, y pisarla hacia atrás.
+          if (state?._w !== undefined && state._w <= lastWriteRef.current) return;
+          // Si la ruta local ya está marcada como done, no la pisar con el DELETE de limpieza
+          setRutaDia((prev) => {
+            if (eventType === "DELETE") return prev?.done ? prev : null;
+            return state;
+          });
         }
       });
     } catch (e) { console.error("subscribeRutasActivas:", e); }
@@ -492,8 +513,6 @@ export default function OptimizadorRutas() {
   const onRemovePunto = async (id) => { await removePunto(id); await refresh(); };
   const onAddRecorrido = async (r) => {
     await addRecorrido(r);
-    // La ruta terminada ya se limpió de ruta_activa en saveRoute; forzar limpiar estado local
-    setRutaDia(null);
     await refresh();
   };
   const onReplaceAll = async (p, r) => { await replaceAll(p, r); await refresh(); };
@@ -1385,10 +1404,11 @@ function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuarda
 }
 function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0, onSaveRuta, profiles = [] }) {
   const accentCls = accent === "amber" ? "text-amber-400" : "text-sky-400";
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const _hoy = new Date();
+  const localToday = `${_hoy.getFullYear()}-${String(_hoy.getMonth()+1).padStart(2,"0")}-${String(_hoy.getDate()).padStart(2,"0")}`;
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [saveNombre, setSaveNombre] = useState("");
-  const [saveFecha, setSaveFecha] = useState(tomorrow);
+  const [saveFecha, setSaveFecha] = useState(localToday);
   const [saveAssignedTo, setSaveAssignedTo] = useState("");
   const [savingRuta, setSavingRuta] = useState(false);
   if (!data) return null;
@@ -1451,12 +1471,13 @@ function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin
                 autoFocus
               />
             </Field>
-            <Field label="Fecha">
+            <Field label="Fecha (escribe o usa el calendario)">
               <input
                 className={inputCls}
                 type="date"
                 value={saveFecha}
                 onChange={(e) => setSaveFecha(e.target.value)}
+                placeholder="AAAA-MM-DD"
               />
             </Field>
             {profiles.length > 0 && (
@@ -1718,7 +1739,8 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
 
   const saveRoute = async (finalRoute) => {
     if (finalRoute.length < 2) { setErr("Se necesitan al menos 2 paradas para guardar."); return; }
-    const today = new Date().toISOString().slice(0, 10);
+    const _d = new Date();
+    const today = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,"0")}-${String(_d.getDate()).padStart(2,"0")}`;
     const recStops = finalRoute.map((stop, i) => {
       const prev = i > 0 ? finalRoute[i - 1] : null;
       const rawLeg = i > 0 && prev?.departedAt && stop.arrivedAt
