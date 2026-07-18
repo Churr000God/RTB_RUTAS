@@ -127,7 +127,9 @@ export async function adminToggleUsuario(userId, disabled) {
 }
 
 /* ----------------------------- Puntos ----------------------------- */
-const mapPunto = (r) => ({ id: r.id, name: r.nombre, type: r.tipo, lat: r.lat, lng: r.lng });
+// direccion: columna opcional (ver supabase/migrations/2026-07-evaluacion-rutas.sql).
+// Manual o por geocodificación inversa (src/lib/geocode.js).
+const mapPunto = (r) => ({ id: r.id, name: r.nombre, type: r.tipo, lat: r.lat, lng: r.lng, direccion: r.direccion ?? null });
 
 export async function getPuntos() {
   const { data, error } = await supabase.from("puntos").select("*").order("created_at");
@@ -138,7 +140,7 @@ export async function getPuntos() {
 export async function addPunto(p) {
   const { data, error } = await supabase
     .from("puntos")
-    .insert({ nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null })
+    .insert({ nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null, direccion: p.direccion || null })
     .select()
     .single();
   if (error) throw error;
@@ -148,7 +150,7 @@ export async function addPunto(p) {
 export async function updatePunto(id, p) {
   const { data, error } = await supabase
     .from("puntos")
-    .update({ nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null })
+    .update({ nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null, direccion: p.direccion || null })
     .eq("id", id)
     .select()
     .single();
@@ -174,9 +176,12 @@ export async function removePunto(id) {
 }
 
 /* --------------------------- Recorridos --------------------------- */
-// edit_log: columna opcional (ver supabase/migrations/2026-07-seguimiento-ruta.sql).
-// Si la migración no se ha aplicado, se omite del insert (fallback abajo).
-const mapRec = (r) => ({ id: r.id, dateISO: r.fecha, ts: Number(r.ts), stops: r.stops, editLog: r.edit_log ?? [] });
+// edit_log / driver_id: columnas opcionales (ver supabase/migrations/
+// 2026-07-seguimiento-ruta.sql y 2026-07-evaluacion-rutas.sql). Si alguna
+// migración no se ha aplicado, se omite del insert (fallback abajo).
+// driver_id: chofer que ejecutó la ruta (null en recorridos previos a
+// este módulo) — necesario para las vistas "por usuario" de Evaluación.
+const mapRec = (r) => ({ id: r.id, dateISO: r.fecha, ts: Number(r.ts), stops: r.stops, editLog: r.edit_log ?? [], driverId: r.driver_id ?? null });
 
 export async function getRecorridos() {
   const { data, error } = await supabase.from("recorridos").select("*").order("ts");
@@ -187,11 +192,16 @@ export async function getRecorridos() {
 export async function addRecorrido(r) {
   const payload = { fecha: r.dateISO, ts: r.ts, stops: r.stops };
   if (r.editLog?.length) payload.edit_log = r.editLog;
+  if (r.driverId) payload.driver_id = r.driverId;
   let { data, error } = await supabase.from("recorridos").insert(payload).select().single();
-  if (error && payload.edit_log && /edit_log/.test(error.message || "")) {
-    // Migración de edit_log no aplicada todavía: reintenta sin la columna
-    // para no bloquear el guardado del recorrido (el log solo se pierde).
-    delete payload.edit_log;
+  // Columnas opcionales: si la migración correspondiente no se ha aplicado
+  // todavía, el insert falla mencionando la columna — se reintenta sin ella
+  // para no bloquear el guardado del recorrido (ese dato en particular
+  // simplemente no se conserva hasta que se corra la migración).
+  while (error) {
+    const missing = ["edit_log", "driver_id"].find((col) => col in payload && (error.message || "").includes(col));
+    if (!missing) break;
+    delete payload[missing];
     ({ data, error } = await supabase.from("recorridos").insert(payload).select().single());
   }
   if (error) throw error;

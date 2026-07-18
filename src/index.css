@@ -4,3 +4,13 @@
 
 html, body, #root { height: 100%; }
 body { margin: 0; background: #020617; }
+
+/* Exportar a PDF (módulo de Evaluación de rutas): imprime solo el
+   contenedor marcado .print-area (el reporte por ruta), ocultando el
+   resto de la app (nav, tabs, otras tarjetas). El navegador ofrece
+   "Guardar como PDF" en el diálogo de impresión — sin dependencias. */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+}

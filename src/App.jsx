@@ -8,6 +8,7 @@ import {
   Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog,
   UserCircle, KeyRound, UserPlus, Ban, Mail, ExternalLink, Copy,
   Lock, Unlock, ArrowUp, ArrowDown, GripVertical, Send, MessageSquare,
+  Award, Compass, Printer,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -30,7 +31,9 @@ import {
 } from "./lib/routing";
 import { saveLocal, readLocal, clearLocal, reconcile } from "./lib/rutaDiaCache";
 import { mergeRutaActiva, effectivePending } from "./lib/rutaActivaMerge";
+import { reverseGeocode } from "./lib/geocode";
 import SeguimientoTab from "./components/seguimiento/SeguimientoTab";
+import EvaluacionTab from "./components/evaluacion/EvaluacionTab";
 
 // Leaflet pesa lo suyo: se carga solo cuando se muestra un mapa (chunk aparte).
 const LeafletMap = lazy(() => import("./components/LeafletMap"));
@@ -644,6 +647,7 @@ export default function OptimizadorRutas() {
     { id: "optimizar",  label: "Generación y carga de rutas", icon: Zap,  roles: ["admin","supervisor"] },
     { id: "registrar",  label: "Registrar recorrido",  icon: Clock,       roles: ["admin","supervisor"] },
     { id: "ahorro",     label: "Análisis de ahorro",   icon: TrendingDown,roles: ["admin","supervisor"] },
+    { id: "evaluacion", label: "Evaluación de rutas",  icon: Award,       roles: ["admin","supervisor"] },
     { id: "puntos",     label: "Puntos",               icon: MapPin,      roles: ["admin","supervisor"] },
     { id: "matriz",     label: "Matriz aprendida",     icon: MapIcon,     roles: ["admin","supervisor"] },
     { id: "datos",      label: "Datos",                icon: Database,    roles: ["admin"] },
@@ -711,6 +715,7 @@ export default function OptimizadorRutas() {
         {tab === "puntos"    && <PuntosTab points={points} recorridos={recorridos} onAddPunto={onAddPunto} onUpdatePunto={onUpdatePunto} onRemovePunto={onRemovePunto} />}
         {tab === "registrar" && <RegistrarTab points={points} onAddRecorrido={onAddRecorrido} />}
         {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
+        {tab === "evaluacion" && <EvaluacionTab points={points} recorridos={recorridos} profiles={profiles} />}
         {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
         {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onSaveRutaGuardada={onSaveRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} profiles={profiles} />}
         {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profile={profile} profiles={profiles} online={online} syncOk={syncOk} />}
@@ -1054,6 +1059,8 @@ function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunt
   const [type, setType] = useState("entrega");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
+  const [direccion, setDireccion] = useState("");
+  const [geocoding, setGeocoding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
@@ -1084,12 +1091,13 @@ function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunt
     setType(p.type);
     setLat(p.lat != null ? String(p.lat) : "");
     setLng(p.lng != null ? String(p.lng) : "");
+    setDireccion(p.direccion || "");
   };
 
   const cancelEdit = () => {
     setEditId(null);
     setErr("");
-    setName(""); setType("entrega"); setLat(""); setLng("");
+    setName(""); setType("entrega"); setLat(""); setLng(""); setDireccion("");
   };
 
   const save = async () => {
@@ -1101,17 +1109,32 @@ function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunt
     if (lng.trim() && !isValidLng(lng)) { setErr("Longitud inválida: debe estar entre -180 y 180."); return; }
     setBusy(true);
     try {
-      const payload = { name: trimmedName, type, lat: lat.trim() ? parseFloat(lat) : null, lng: lng.trim() ? parseFloat(lng) : null };
+      const payload = {
+        name: trimmedName, type,
+        lat: lat.trim() ? parseFloat(lat) : null,
+        lng: lng.trim() ? parseFloat(lng) : null,
+        direccion: direccion.trim() || null,
+      };
       if (editId) {
         await onUpdatePunto(editId, payload);
         setEditId(null);
       } else {
         await onAddPunto(payload);
       }
-      setName(""); setType("entrega"); setLat(""); setLng("");
+      setName(""); setType("entrega"); setLat(""); setLng(""); setDireccion("");
     } catch (e) {
       setErr(e?.code === "23505" ? "Ya existe un punto con ese nombre." : (e?.message || "No se pudo guardar el punto."));
     } finally { setBusy(false); }
+  };
+
+  const obtenerDireccion = async () => {
+    if (!hasValidCoords || geocoding) return;
+    setGeocoding(true);
+    try {
+      const d = await reverseGeocode(Number(lat), Number(lng));
+      if (d) setDireccion(d);
+      else setErr("No se pudo obtener la dirección (sin resultado o sin conexión).");
+    } finally { setGeocoding(false); }
   };
 
   const remove = async (id) => {
@@ -1177,6 +1200,15 @@ function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunt
             />
           </Suspense>
           <p className="text-xs text-slate-500">Coordenadas opcionales: haz clic en el mapa o arrastra el pin para fijarlas; también puedes teclearlas.</p>
+          <Field label="Dirección (opcional)">
+            <div className="flex gap-2">
+              <input className={inputCls} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Calle, número, colonia…" />
+              <Btn variant="ghost" onClick={obtenerDireccion} disabled={!hasValidCoords || geocoding} className="shrink-0 justify-center whitespace-nowrap text-xs">
+                <Compass size={14} /> {geocoding ? "Buscando…" : "Obtener dirección"}
+              </Btn>
+            </div>
+            {!hasValidCoords && <p className="mt-1 text-[11px] text-slate-600">Fija coordenadas para poder obtenerla automáticamente.</p>}
+          </Field>
           {err && <p className="text-xs text-rose-400">{err}</p>}
           <div className="flex gap-2">
             {editId && (
@@ -1237,6 +1269,7 @@ function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunt
                 </div>
                 {expandedId === p.id && (
                   <div className="space-y-2 border-t border-slate-800 px-3 py-3">
+                    {p.direccion && <p className="text-xs text-slate-400">{p.direccion}</p>}
                     {p.lat != null && p.lng != null ? (
                       <>
                         <Suspense fallback={<MapFallback className="h-40 w-full rounded-lg" />}>
@@ -2651,7 +2684,7 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
       // se borre al terminar. Requiere recorridos.edit_log (ver supabase/
       // migrations/2026-07-seguimiento-ruta.sql); si no se aplicó, addRecorrido
       // reintenta sin la columna y el log simplemente no se conserva.
-      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops, editLog: rutaDia.editLog || [] });
+      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops, editLog: rutaDia.editLog || [], driverId: profile?.userId ?? null });
       patch({ route: finalRoute, done: true });
       setPrevSnapshot(null);
     } catch { setErr("Error al guardar. Intenta de nuevo."); }

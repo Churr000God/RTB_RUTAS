@@ -27,6 +27,7 @@ export default function LiveStats({ state, allPoints, segments, waits }) {
   const route = state?.route || [];
   const pending = effectivePending(state);
   const total = route.length + pending.length;
+  const pct = total > 0 ? Math.min(100, (route.length / total) * 100) : (route.length > 0 ? 100 : 0);
 
   const elapsedMin = route.length > 0 && route[0].arrivedAt
     ? Math.max(0, Math.round((now - route[0].arrivedAt) / 60000)) : 0;
@@ -35,6 +36,20 @@ export default function LiveStats({ state, allPoints, segments, waits }) {
     if (s.arrivedAt && s.departedAt) return acc + Math.max(0, Math.round((s.departedAt - s.arrivedAt) / 60000) - (s.waitBreakMin || 0));
     return acc;
   }, 0);
+
+  // Cronómetro del segmento actual: en parada, desde que llegó; en camino
+  // (o eligiendo destino, ya "salió" de la parada aunque no eligió aún),
+  // desde que salió del último punto.
+  const curStop = route.length ? route[route.length - 1] : null;
+  let segmentStartAt = null, segmentLabel = "En este tramo";
+  if (state?.phase === "at-stop" && curStop?.arrivedAt) {
+    segmentStartAt = curStop.arrivedAt;
+    segmentLabel = "En esta parada";
+  } else if ((state?.phase === "traveling" || state?.phase === "choose-next") && curStop?.departedAt) {
+    segmentStartAt = curStop.departedAt;
+    segmentLabel = "En camino";
+  }
+  const segmentMin = segmentStartAt ? Math.max(0, Math.round((now - segmentStartAt) / 60000)) : null;
 
   // ETA de término siguiendo el orden ACTUAL del plan (no se re-optimiza
   // aquí — es la estimación de a dónde va a llegar con lo que ya tiene).
@@ -59,12 +74,23 @@ export default function LiveStats({ state, allPoints, segments, waits }) {
   }, [state?.done, state?.phase, state?.horaInicio, state?.startId, route.length, pending, allPoints, segments, waits]);
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-      <Stat label="Progreso" value={`${route.length}/${total || route.length}`} />
-      <Stat label="Tiempo en ruta" value={route.length > 0 ? fmtMin(elapsedMin) : "—"} />
-      <Stat label="Prom. por parada" value={avgMin != null ? fmtMin(avgMin) : "—"} />
-      <Stat label="Espera acumulada" value={fmtMin(waitMin)} />
-      <Stat label="ETA término" value={etaInfo?.horaTerminoMin != null ? `${etaInfo.approx ? "≈ " : ""}${minToHHMM(etaInfo.horaTerminoMin)}` : "—"} />
+    <div>
+      <div className="mb-2">
+        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500">
+          <span>Progreso</span>
+          <span className="font-mono normal-case text-slate-400">{route.length}/{total || route.length}</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+          <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label={segmentLabel} value={segmentMin != null ? fmtMin(segmentMin) : "—"} />
+        <Stat label="Tiempo en ruta" value={route.length > 0 ? fmtMin(elapsedMin) : "—"} />
+        <Stat label="Prom. por parada" value={avgMin != null ? fmtMin(avgMin) : "—"} />
+        <Stat label="Espera acumulada" value={fmtMin(waitMin)} />
+        <Stat label="ETA término" value={etaInfo?.horaTerminoMin != null ? `${etaInfo.approx ? "≈ " : ""}${minToHHMM(etaInfo.horaTerminoMin)}` : "—"} />
+      </div>
     </div>
   );
 }

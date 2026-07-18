@@ -14,6 +14,7 @@ create table if not exists public.puntos (
   tipo       text not null check (tipo in ('deposito','entrega','recoleccion')),
   lat        double precision,
   lng        double precision,
+  direccion  text,                     -- opcional; manual o geocodificación inversa
   created_at timestamptz not null default now()
 );
 
@@ -35,11 +36,13 @@ create table if not exists public.recorridos (
   fecha      date   not null,
   ts         bigint not null,          -- epoch ms (mediodía de 'fecha'); lo usa el cálculo por día de la semana
   stops      jsonb  not null,
+  driver_id  uuid references auth.users(id),  -- chofer que ejecutó la ruta (null = histórico previo a este módulo)
   created_at timestamptz not null default now()
 );
 
-create index if not exists recorridos_ts_idx    on public.recorridos (ts);
-create index if not exists recorridos_fecha_idx on public.recorridos (fecha);
+create index if not exists recorridos_ts_idx        on public.recorridos (ts);
+create index if not exists recorridos_fecha_idx     on public.recorridos (fecha);
+create index if not exists recorridos_driver_id_idx on public.recorridos (driver_id);
 
 -- ---------------------------------------------------------------------
 -- Row Level Security (puntos y recorridos: datos compartidos de empresa)

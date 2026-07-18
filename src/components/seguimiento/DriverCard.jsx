@@ -16,6 +16,17 @@ import DispatchNoteBox from "./DispatchNoteBox";
 
 const PHASE_LABEL = { initial: "En espera", "at-stop": "En parada", "choose-next": "Eligiendo destino", traveling: "En camino" };
 
+// Etiqueta de fase enriquecida con el destino/parada actual, cuando se
+// conoce ("en camino a X" / "en parada Y") — antes solo mostraba la fase
+// genérica.
+function phaseText(state) {
+  const phase = state.phase;
+  const curStop = state.route?.length ? state.route[state.route.length - 1] : null;
+  if (phase === "at-stop" && curStop) return `En parada · ${curStop.name}`;
+  if (phase === "traveling" && state.nextStop) return `En camino a ${state.nextStop.name}`;
+  return PHASE_LABEL[phase] ?? phase;
+}
+
 const Card = ({ children, className = "" }) => (
   <div className={"rounded-xl border border-slate-800 bg-slate-900/70 " + className}>{children}</div>
 );
@@ -23,7 +34,7 @@ const Card = ({ children, className = "" }) => (
 export default function DriverCard({ driverId, driverNombre, state, allPoints, segments, waits, onLiberar, onAddStop, onRemoveStop, onReorder, onSendNote }) {
   const [expanded, setExpanded] = useState(false);
   if (!state) return null;
-  const { title, phase, done } = state;
+  const { title, done } = state;
   const color = colorForDriver(driverId);
   const initials = initialsFor(driverNombre);
 
@@ -41,7 +52,7 @@ export default function DriverCard({ driverId, driverNombre, state, allPoints, s
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold text-slate-200">{driverNombre ?? "Chofer"}</span>
               {done && <span className="rounded bg-teal-900/60 px-1.5 py-0.5 text-[10px] text-teal-300">Terminada</span>}
-              <span className="text-[10px] text-slate-500">{PHASE_LABEL[phase] ?? phase}</span>
+              <span className="text-[10px] text-slate-500">{phaseText(state)}</span>
             </div>
             <p className="truncate text-xs text-slate-400">{title}</p>
           </div>
