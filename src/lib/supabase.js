@@ -27,14 +27,27 @@ export async function signIn(email, password) {
 export async function signOut() {
   await supabase.auth.signOut();
 }
+/** cb recibe (session, event) — event es p.ej. 'SIGNED_IN' | 'PASSWORD_RECOVERY' | 'SIGNED_OUT'. */
 export function onAuth(cb) {
-  return supabase.auth.onAuthStateChange((_event, session) => cb(session));
+  return supabase.auth.onAuthStateChange((event, session) => cb(session, event));
+}
+
+/** Cambia la contraseña del usuario ya autenticado (pantalla "Mi cuenta" o tras invitación/reseteo). */
+export async function changeMyPassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+/** Envía el correo de "olvidé mi contraseña" (pantalla de login). */
+export async function sendPasswordReset(email, redirectTo) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw error;
 }
 
 /* ---------------------------- Profiles ---------------------------- */
-const mapProfile = (r) => ({ userId: r.user_id, nombre: r.nombre, role: r.role });
+const mapProfile = (r) => ({ userId: r.user_id, nombre: r.nombre, email: r.email ?? null, role: r.role, disabled: !!r.disabled });
 
-/** Perfil del usuario actual (role: 'admin' | 'driver'). null si la tabla no existe aún. */
+/** Perfil del usuario actual (role: 'admin' | 'supervisor' | 'driver'). null si no existe. */
 export async function getMyProfile() {
   const { data, error } = await supabase
     .from("profiles")
@@ -45,30 +58,24 @@ export async function getMyProfile() {
   return mapProfile(data);
 }
 
-/** Todos los perfiles (para el selector de asignación y el monitor). */
+/** Todos los perfiles (para el selector de asignación, el monitor y Usuarios). */
 export async function getProfiles() {
   const { data, error } = await supabase.from("profiles").select("*").order("nombre");
   if (error) return [];
   return data.map(mapProfile);
 }
 
-/**
- * Crea el perfil del usuario actual si no existe (primer login).
- * defaultNombre: texto a usar si no hay perfil previo (ej. la parte del email antes del @).
- */
-export async function ensureMyProfile(defaultNombre) {
+/** El propio usuario cambia su nombre (permitido por RLS "profiles: update propio"). */
+export async function updateMyName(nombre) {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  // Intentar leer el perfil primero
-  const { data: existing } = await supabase.from("profiles").select("*").eq("user_id", user.id).single();
-  if (existing) return mapProfile(existing);
-  // No existe → crear como driver
+  if (!user) throw new Error("No autenticado");
   const { data, error } = await supabase
     .from("profiles")
-    .insert({ user_id: user.id, nombre: defaultNombre, role: "driver" })
+    .update({ nombre })
+    .eq("user_id", user.id)
     .select()
     .single();
-  if (error) return null;
+  if (error) throw error;
   return mapProfile(data);
 }
 
@@ -82,6 +89,41 @@ export async function updateProfile(userId, { nombre, role }) {
     .single();
   if (error) throw error;
   return mapProfile(data);
+}
+
+/* ------------------- Gestión de usuarios (admin) -------------------
+ * Vía Edge Functions: la service_role nunca toca el navegador.
+ * supabase.functions.invoke adjunta automáticamente el JWT del admin
+ * que llama en el header Authorization.
+ * ------------------------------------------------------------------- */
+
+/** Crea una cuenta (invitación por correo) + su fila en profiles. role: 'admin'|'supervisor'|'driver'. */
+export async function adminCrearUsuario({ nombre, email, role }) {
+  const { data, error } = await supabase.functions.invoke("admin-crear-usuario", {
+    body: { nombre, email, role, redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return mapProfile(data.profile);
+}
+
+/** Dispara el correo de reseteo de contraseña de otro usuario. */
+export async function adminResetPassword(email) {
+  const { data, error } = await supabase.functions.invoke("admin-resetear-password", {
+    body: { email, redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+}
+
+/** Deshabilita (reversible) o rehabilita el acceso de un usuario. */
+export async function adminToggleUsuario(userId, disabled) {
+  const { data, error } = await supabase.functions.invoke("admin-toggle-usuario", {
+    body: { userId, disabled },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return mapProfile(data.profile);
 }
 
 /* ----------------------------- Puntos ----------------------------- */

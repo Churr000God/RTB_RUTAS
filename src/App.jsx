@@ -5,7 +5,8 @@ import {
   Truck, MapPin, Clock, Route, Plus, Trash2, Download, Upload, Zap,
   ChevronRight, AlertTriangle, Database, Map, GitCompare, X, Save,
   TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
-  Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog
+  Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog,
+  UserCircle, KeyRound, UserPlus, Ban, Mail
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -13,7 +14,9 @@ import {
 import {
   supabase,
   getSession, signIn, signOut, onAuth,
-  getMyProfile, getProfiles, ensureMyProfile, updateProfile,
+  getMyProfile, getProfiles, updateProfile, updateMyName,
+  changeMyPassword, sendPasswordReset,
+  adminCrearUsuario, adminResetPassword, adminToggleUsuario,
   getPuntos, addPunto, updatePunto, removePunto,
   getRecorridos, addRecorrido, replaceAll,
   getRutasGuardadas, addRutaGuardada, updateRutaGuardada, removeRutaGuardada,
@@ -294,10 +297,20 @@ function LoginGate() {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("login"); // "login" | "forgot" | "forgot-sent"
   const go = async () => {
     setErr(""); setBusy(true);
     try { await signIn(email.trim(), pw); }
     catch { setErr("Credenciales incorrectas."); setBusy(false); }
+  };
+  const sendReset = async () => {
+    if (!email.trim()) { setErr("Escribe tu correo."); return; }
+    setErr(""); setBusy(true);
+    try {
+      await sendPasswordReset(email.trim(), window.location.origin);
+      setMode("forgot-sent");
+    } catch { setErr("No se pudo enviar el correo."); }
+    finally { setBusy(false); }
   };
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 font-sans">
@@ -306,14 +319,74 @@ function LoginGate() {
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-slate-950"><Truck size={20} /></div>
           <div>
             <h1 className="text-base font-bold text-slate-100">Despacho RTB</h1>
-            <p className="text-xs text-slate-500">Inicia sesión para continuar</p>
+            <p className="text-xs text-slate-500">{mode === "login" ? "Inicia sesión para continuar" : "Recuperar contraseña"}</p>
+          </div>
+        </div>
+        {mode === "forgot-sent" ? (
+          <div className="space-y-3 text-center">
+            <CheckCircle2 size={28} className="mx-auto text-teal-400" />
+            <p className="text-sm text-slate-300">Si el correo existe, te enviamos un enlace para restablecer tu contraseña.</p>
+            <Btn variant="ghost" onClick={() => setMode("login")} className="w-full justify-center">Volver</Btn>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <input className={inputCls} placeholder="correo" value={email} onChange={(e) => setEmail(e.target.value)} />
+            {mode === "login" && (
+              <input type="password" className={inputCls} placeholder="contraseña" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+            )}
+            {err && <p className="text-xs text-rose-400">{err}</p>}
+            {mode === "login" ? (
+              <>
+                <Btn onClick={go} disabled={busy} className="w-full justify-center">{busy ? "Entrando…" : "Entrar"}</Btn>
+                <button onClick={() => { setErr(""); setMode("forgot"); }} className="w-full text-center text-xs text-slate-500 hover:text-slate-300">¿Olvidaste tu contraseña?</button>
+              </>
+            ) : (
+              <>
+                <Btn onClick={sendReset} disabled={busy} className="w-full justify-center">{busy ? "Enviando…" : "Enviar enlace"}</Btn>
+                <button onClick={() => { setErr(""); setMode("login"); }} className="w-full text-center text-xs text-slate-500 hover:text-slate-300">Volver a iniciar sesión</button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Definir contraseña (invitación / reseteo) — se muestra cuando
+   la sesión viene de un enlace de invitación o de recuperación,
+   antes de dejar entrar a la app.
+   ============================================================ */
+function SetPasswordGate({ onDone }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setErr("");
+    if (pw.length < 6) { setErr("La contraseña debe tener al menos 6 caracteres."); return; }
+    if (pw !== pw2) { setErr("Las contraseñas no coinciden."); return; }
+    setBusy(true);
+    try { await changeMyPassword(pw); onDone(); }
+    catch (e) { setErr(e.message || "No se pudo guardar la contraseña."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4 font-sans">
+      <div className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900/70 p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-slate-950"><KeyRound size={20} /></div>
+          <div>
+            <h1 className="text-base font-bold text-slate-100">Define tu contraseña</h1>
+            <p className="text-xs text-slate-500">Para entrar por primera vez, elige una contraseña</p>
           </div>
         </div>
         <div className="space-y-3">
-          <input className={inputCls} placeholder="correo" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input type="password" className={inputCls} placeholder="contraseña" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+          <input type="password" className={inputCls} placeholder="Nueva contraseña" value={pw} onChange={(e) => setPw(e.target.value)} />
+          <input type="password" className={inputCls} placeholder="Repite la contraseña" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
           {err && <p className="text-xs text-rose-400">{err}</p>}
-          <Btn onClick={go} disabled={busy} className="w-full justify-center">{busy ? "Entrando…" : "Entrar"}</Btn>
+          <Btn onClick={go} disabled={busy} className="w-full justify-center">{busy ? "Guardando…" : "Guardar y entrar"}</Btn>
         </div>
       </div>
     </div>
@@ -326,6 +399,9 @@ function LoginGate() {
 export default function OptimizadorRutas() {
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState(null);
+  // true si la sesión viene de un enlace de invitación o de recuperación de
+  // contraseña: hay que dejar definir la contraseña antes de entrar a la app.
+  const [needsPassword, setNeedsPassword] = useState(() => /type=(recovery|invite)/.test(window.location.hash || ""));
   const [profile, setProfile] = useState(null);   // { userId, nombre, role }
   const [profiles, setProfiles] = useState([]);    // todos los perfiles (para asignación y monitor)
   const [tab, setTab] = useState("ruta-dia");
@@ -365,24 +441,14 @@ export default function OptimizadorRutas() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [p, r, rawProf, profs, rutas, activas] = await Promise.all([
+    const [p, r, prof, profs, rutas, activas] = await Promise.all([
       getPuntos(), getRecorridos(),
       getMyProfile(), getProfiles(),
       getRutasGuardadas().catch(() => []),
       getAllRutasActivas().catch(() => []),
     ]);
-    // Auto-crear perfil en primer login: usa la parte del email antes del @
-    let prof = rawProf;
-    if (!prof) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const defaultNombre = user.email?.split("@")[0] ?? "Usuario";
-        prof = await ensureMyProfile(defaultNombre);
-        // Recargar lista de perfiles para que el nuevo aparezca
-        const freshProfs = await getProfiles();
-        setProfiles(freshProfs);
-      }
-    }
+    // Ya no hay auto-alta de perfil: las cuentas nacen desde Usuarios → Nuevo
+    // usuario (Edge Function admin-crear-usuario), que crea la fila en profiles.
     setPoints(p);
     setRecorridos(r);
     setProfile(prof);
@@ -417,8 +483,11 @@ export default function OptimizadorRutas() {
       setSession(s);
       if (s) { try { await refresh(); } catch (e) { console.error(e); } }
       setLoaded(true);
-      sub = onAuth(async (ns) => {
+      sub = onAuth(async (ns, event) => {
         setSession(ns);
+        // El link de invitación no siempre dispara PASSWORD_RECOVERY, pero el de
+        // reseteo sí; se combina con la detección del hash en el estado inicial.
+        if (event === "PASSWORD_RECOVERY") setNeedsPassword(true);
         if (ns) { try { await refresh(); } catch (e) { console.error(e); } }
         else {
           setProfile(null); profileRef.current = null;
@@ -462,8 +531,10 @@ export default function OptimizadorRutas() {
   }, [refresh]);
 
   // Bloqueo del driver: si tiene ruta activa no terminada, forzar a ruta-dia
-  const isDriver = profile?.role === "driver";
-  const isAdmin  = profile?.role === "admin";
+  const isDriver     = profile?.role === "driver";
+  const isSupervisor = profile?.role === "supervisor";
+  const isAdmin       = profile?.role === "admin";
+  const isStaff       = isAdmin || isSupervisor;   // admin y supervisor: mismo nivel operativo
   const driverBlocked = isDriver && rutaDia && !rutaDia.done;
   useEffect(() => {
     if (driverBlocked) setTab("ruta-dia");
@@ -523,21 +594,37 @@ export default function OptimizadorRutas() {
     if (profile?.userId === userId) setProfile((prev) => ({ ...prev, nombre, role }));
   };
 
+  const onUpdateMyName = async (nombre) => {
+    const p = await updateMyName(nombre);
+    setProfile((prev) => ({ ...prev, nombre: p.nombre }));
+    setProfiles((prev) => prev.map((x) => x.userId === p.userId ? { ...x, nombre: p.nombre } : x));
+  };
+  const onAdminCrearUsuario = async (data) => {
+    const p = await adminCrearUsuario(data);
+    setProfiles((prev) => [...prev, p].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+  };
+  const onAdminToggleUsuario = async (userId, disabled) => {
+    const p = await adminToggleUsuario(userId, disabled);
+    setProfiles((prev) => prev.map((x) => x.userId === userId ? { ...x, disabled: p.disabled } : x));
+  };
+
   const obs = useMemo(() => deriveObservations(recorridos), [recorridos]);
 
   // Pestañas según rol:
-  // - driver: solo "Ruta del día" (si está bloqueado, es la única)
-  // - admin: todas + Monitor
+  // - driver: solo "Ruta del día" (si está bloqueado, es la única) + Mi cuenta
+  // - supervisor: igual que admin salvo Datos y Usuarios (datos maestros / cuentas)
+  // - admin: todas
   const allTabs = [
-    { id: "ruta-dia",   label: "Ruta del día",        icon: Navigation,  roles: ["admin","driver"] },
-    { id: "monitor",    label: "Monitor",              icon: Radio,       roles: ["admin"] },
-    { id: "optimizar",  label: "Optimizar",            icon: Zap,         roles: ["admin"] },
-    { id: "registrar",  label: "Registrar recorrido",  icon: Clock,       roles: ["admin"] },
-    { id: "ahorro",     label: "Análisis de ahorro",   icon: TrendingDown,roles: ["admin"] },
-    { id: "puntos",     label: "Puntos",               icon: MapPin,      roles: ["admin"] },
-    { id: "matriz",     label: "Matriz aprendida",     icon: Map,         roles: ["admin"] },
+    { id: "ruta-dia",   label: "Ruta del día",        icon: Navigation,  roles: ["admin","supervisor","driver"] },
+    { id: "monitor",    label: "Monitor",              icon: Radio,       roles: ["admin","supervisor"] },
+    { id: "optimizar",  label: "Optimizar",            icon: Zap,         roles: ["admin","supervisor"] },
+    { id: "registrar",  label: "Registrar recorrido",  icon: Clock,       roles: ["admin","supervisor"] },
+    { id: "ahorro",     label: "Análisis de ahorro",   icon: TrendingDown,roles: ["admin","supervisor"] },
+    { id: "puntos",     label: "Puntos",               icon: MapPin,      roles: ["admin","supervisor"] },
+    { id: "matriz",     label: "Matriz aprendida",     icon: Map,         roles: ["admin","supervisor"] },
     { id: "datos",      label: "Datos",                icon: Database,    roles: ["admin"] },
     { id: "usuarios",   label: "Usuarios",             icon: UserCog,     roles: ["admin"] },
+    { id: "micuenta",   label: "Mi cuenta",            icon: UserCircle,  roles: ["admin","supervisor","driver"] },
   ];
   const role = profile?.role ?? "driver";
   const tabs = driverBlocked
@@ -545,6 +632,12 @@ export default function OptimizadorRutas() {
     : allTabs.filter((t) => t.roles.includes(role));
 
   if (!loaded) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-500">Cargando…</div>;
+  if (session && needsPassword) {
+    return <SetPasswordGate onDone={() => {
+      setNeedsPassword(false);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }} />;
+  }
   if (!session) return <LoginGate />;
 
   return (
@@ -556,12 +649,12 @@ export default function OptimizadorRutas() {
             <h1 className="text-lg font-bold leading-tight">Despacho RTB · Optimizador de Rutas</h1>
             <p className="text-xs text-slate-500">
               {profile
-                ? <>{isAdmin ? <ShieldCheck size={11} className="inline mr-0.5 text-amber-400" /> : null}{profile.nombre} · {isAdmin ? "Admin" : "Chofer"}</>
+                ? <>{isAdmin ? <ShieldCheck size={11} className="inline mr-0.5 text-amber-400" /> : null}{profile.nombre} · {isAdmin ? "Admin" : isSupervisor ? "Supervisor" : "Chofer"}</>
                 : "Aprende tiempos reales, optimiza y mide cuánto estás ahorrando"}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-4">
-            {isAdmin && (
+            {isStaff && (
               <div className="hidden text-right text-xs text-slate-500 sm:block">
                 <div><span className="font-mono text-slate-300">{points.length}</span> puntos</div>
                 <div><span className="font-mono text-slate-300">{recorridos.length}</span> recorridos</div>
@@ -596,10 +689,11 @@ export default function OptimizadorRutas() {
         {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
         {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} onSaveRutaGuardada={onSaveRutaGuardada} profiles={profiles} />}
-        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isAdmin} profiles={profiles} />}
+        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profiles={profiles} />}
         {tab === "monitor"   && <MonitorTab activeRoutes={activeRoutes} profiles={profiles} onLiberar={onLiberarRuta} />}
         {tab === "datos"     && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
-        {tab === "usuarios"  && <UsuariosTab profiles={profiles} currentUserId={profile?.userId} onUpdate={onUpdateProfileRole} />}
+        {tab === "usuarios"  && <UsuariosTab profiles={profiles} currentUserId={profile?.userId} onUpdate={onUpdateProfileRole} onCrear={onAdminCrearUsuario} onResetPassword={adminResetPassword} onToggle={onAdminToggleUsuario} />}
+        {tab === "micuenta"  && <MiCuentaTab profile={profile} onUpdateName={onUpdateMyName} onChangePassword={changeMyPassword} />}
       </div>
     </div>
   );
@@ -609,15 +703,80 @@ export default function OptimizadorRutas() {
    Tab: Monitor (admin) — rutas activas de todos los choferes en vivo
    ============================================================ */
 /* ============================================================
-   Tab: Usuarios (admin) — gestión de roles
+   Tab: Usuarios (admin) — alta, roles, reset de contraseña y
+   deshabilitar/habilitar cuentas
    ============================================================ */
-function UsuariosTab({ profiles, currentUserId, onUpdate }) {
+const ROLE_META = {
+  admin:      { label: "Administrador", badge: "bg-amber-900/40 text-amber-300" },
+  supervisor: { label: "Supervisor",    badge: "bg-sky-900/40 text-sky-300" },
+  driver:     { label: "Chofer",        badge: "bg-slate-800 text-slate-400" },
+};
+
+function NuevoUsuarioForm({ onCrear, onClose }) {
+  const [nombre, setNombre] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("driver");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    if (!nombre.trim() || !email.trim()) return;
+    setErr(""); setBusy(true);
+    try {
+      await onCrear({ nombre: nombre.trim(), email: email.trim(), role });
+      onClose();
+    } catch (e) { setErr(e.message || "No se pudo crear el usuario."); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <UserPlus size={14} className="text-amber-400" />
+        <span className="text-sm font-semibold text-slate-200">Nuevo usuario</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Field label="Nombre">
+          <input className={inputCls} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre completo" />
+        </Field>
+        <Field label="Correo">
+          <input type="email" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@ejemplo.com" />
+        </Field>
+        <Field label="Rol">
+          <select className={inputCls} value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="driver">driver — Chofer</option>
+            <option value="supervisor">supervisor — Supervisor</option>
+            <option value="admin">admin — Administrador</option>
+          </select>
+        </Field>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">Se envía un correo de invitación; la persona define su propia contraseña al abrirlo.</p>
+      {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+      <div className="mt-3 flex gap-2">
+        <Btn onClick={submit} disabled={busy || !nombre.trim() || !email.trim()} className="py-1 px-3 text-xs">
+          <Mail size={12} /> {busy ? "Enviando invitación…" : "Invitar"}
+        </Btn>
+        <Btn variant="ghost" onClick={onClose} className="py-1 px-3 text-xs">Cancelar</Btn>
+      </div>
+    </Card>
+  );
+}
+
+function UsuariosTab({ profiles, currentUserId, onUpdate, onCrear, onResetPassword, onToggle }) {
   const [editing, setEditing] = useState({});   // userId → { nombre, role }
   const [saving, setSaving] = useState({});     // userId → bool
   const [saved, setSaved] = useState({});       // userId → bool (tick temporal)
+  const [busyAction, setBusyAction] = useState({}); // userId → "reset" | "toggle"
+  const [msg, setMsg] = useState({});           // userId → texto de confirmación temporal
+  const [showNew, setShowNew] = useState(false);
 
   const startEdit = (p) => setEditing((prev) => ({ ...prev, [p.userId]: { nombre: p.nombre, role: p.role } }));
   const cancelEdit = (userId) => setEditing((prev) => { const n = { ...prev }; delete n[userId]; return n; });
+
+  const flash = (userId, text) => {
+    setMsg((prev) => ({ ...prev, [userId]: text }));
+    setTimeout(() => setMsg((prev) => { const n = { ...prev }; delete n[userId]; return n; }), 2500);
+  };
 
   const save = async (userId) => {
     const { nombre, role } = editing[userId];
@@ -632,29 +791,51 @@ function UsuariosTab({ profiles, currentUserId, onUpdate }) {
     finally { setSaving((prev) => { const n = { ...prev }; delete n[userId]; return n; }); }
   };
 
-  if (profiles.length === 0) {
-    return (
-      <Card className="p-8 text-center">
-        <UserCog size={36} className="mx-auto mb-3 text-slate-600" />
-        <p className="text-sm text-slate-400">No hay perfiles registrados.</p>
-        <p className="mt-1 text-xs text-slate-600">Los usuarios se crean en Supabase Dashboard y aparecen aquí al hacer su primer login.</p>
-      </Card>
-    );
-  }
+  const resetPassword = async (p) => {
+    if (!p.email) return;
+    if (!confirm(`¿Enviar correo de reseteo de contraseña a ${p.nombre} (${p.email})?`)) return;
+    setBusyAction((prev) => ({ ...prev, [p.userId]: "reset" }));
+    try { await onResetPassword(p.email); flash(p.userId, "Correo de reseteo enviado"); }
+    catch (e) { flash(p.userId, e.message || "No se pudo enviar"); }
+    finally { setBusyAction((prev) => { const n = { ...prev }; delete n[p.userId]; return n; }); }
+  };
+
+  const toggle = async (p) => {
+    const next = !p.disabled;
+    if (!confirm(next ? `¿Deshabilitar el acceso de ${p.nombre}?` : `¿Rehabilitar el acceso de ${p.nombre}?`)) return;
+    setBusyAction((prev) => ({ ...prev, [p.userId]: "toggle" }));
+    try { await onToggle(p.userId, next); }
+    catch (e) { flash(p.userId, e.message || "No se pudo actualizar"); }
+    finally { setBusyAction((prev) => { const n = { ...prev }; delete n[p.userId]; return n; }); }
+  };
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">
-        Los usuarios se crean en <span className="text-slate-300">Supabase → Authentication → Users</span>. Al hacer su primer login aparecen aquí como <span className="text-amber-400">driver</span> y puedes cambiarles el rol.
-      </p>
+      {showNew ? (
+        <NuevoUsuarioForm onCrear={onCrear} onClose={() => setShowNew(false)} />
+      ) : (
+        <Btn onClick={() => setShowNew(true)} className="text-xs">
+          <UserPlus size={13} /> Nuevo usuario
+        </Btn>
+      )}
+
+      {profiles.length === 0 && (
+        <Card className="p-8 text-center">
+          <UserCog size={36} className="mx-auto mb-3 text-slate-600" />
+          <p className="text-sm text-slate-400">No hay perfiles registrados.</p>
+        </Card>
+      )}
+
       {profiles.map((p) => {
         const ed = editing[p.userId];
         const isSaving = saving[p.userId];
         const isSaved = saved[p.userId];
         const isMe = p.userId === currentUserId;
         const isSuperAdmin = p.userId === SUPERADMIN_ID;
+        const busy = busyAction[p.userId];
+        const roleMeta = ROLE_META[p.role] ?? ROLE_META.driver;
         return (
-          <Card key={p.userId} className="p-4">
+          <Card key={p.userId} className={`p-4 ${p.disabled ? "opacity-60" : ""}`}>
             {ed ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 mb-1">
@@ -684,6 +865,7 @@ function UsuariosTab({ profiles, currentUserId, onUpdate }) {
                         onChange={(e) => setEditing((prev) => ({ ...prev, [p.userId]: { ...prev[p.userId], role: e.target.value } }))}
                       >
                         <option value="driver">driver — Chofer</option>
+                        <option value="supervisor">supervisor — Supervisor</option>
                         <option value="admin">admin — Administrador</option>
                       </select>
                     )}
@@ -697,28 +879,119 @@ function UsuariosTab({ profiles, currentUserId, onUpdate }) {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-slate-200">{p.nombre}</span>
                     {isMe && <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">tú</span>}
                     {isSuperAdmin && <span className="rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] text-amber-300">acceso maestro</span>}
+                    {p.disabled && <span className="rounded bg-rose-950 px-1.5 py-0.5 text-[10px] text-rose-300">deshabilitado</span>}
                     {isSaved && <CheckCircle2 size={13} className="text-teal-400" />}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                    <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${p.role === "admin" ? "bg-amber-900/40 text-amber-300" : "bg-slate-800 text-slate-400"}`}>{p.role}</span>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${roleMeta.badge}`}>{p.role}</span>
                     {isSuperAdmin && <span className="text-slate-600">rol permanente</span>}
-                    <span className="text-slate-700">{p.userId.slice(0, 8)}…</span>
+                    {p.email && <span className="text-slate-600">{p.email}</span>}
+                    {msg[p.userId] && <span className="text-teal-400">{msg[p.userId]}</span>}
                   </div>
                 </div>
-                <Btn variant="ghost" onClick={() => startEdit(p)} className="py-1 px-2 text-slate-400 hover:text-slate-200 shrink-0">
-                  <Pencil size={13} />
-                </Btn>
+                <div className="flex items-center gap-1 shrink-0">
+                  {p.email && (
+                    <Btn variant="ghost" onClick={() => resetPassword(p)} disabled={!!busy} className="py-1 px-2 text-xs" title="Resetear contraseña">
+                      <KeyRound size={13} /> {busy === "reset" ? "…" : ""}
+                    </Btn>
+                  )}
+                  {!isSuperAdmin && !isMe && (
+                    <Btn variant="ghost" onClick={() => toggle(p)} disabled={!!busy}
+                      className={`py-1 px-2 text-xs ${p.disabled ? "text-teal-400" : "text-rose-300"}`}
+                      title={p.disabled ? "Rehabilitar" : "Deshabilitar"}>
+                      <Ban size={13} /> {busy === "toggle" ? "…" : ""}
+                    </Btn>
+                  )}
+                  <Btn variant="ghost" onClick={() => startEdit(p)} className="py-1 px-2 text-slate-400 hover:text-slate-200">
+                    <Pencil size={13} />
+                  </Btn>
+                </div>
               </div>
             )}
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+/* ============================================================
+   Tab: Mi cuenta (todos los roles) — nombre propio y contraseña
+   ============================================================ */
+function MiCuentaTab({ profile, onUpdateName, onChangePassword }) {
+  const [nombre, setNombre] = useState(profile?.nombre ?? "");
+  const [savingName, setSavingName] = useState(false);
+  const [nameMsg, setNameMsg] = useState("");
+
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [savingPw, setSavingPw] = useState(false);
+  const [pwErr, setPwErr] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
+
+  const saveName = async () => {
+    if (!nombre.trim() || nombre.trim() === profile?.nombre) return;
+    setSavingName(true); setNameMsg("");
+    try { await onUpdateName(nombre.trim()); setNameMsg("Guardado"); }
+    catch (e) { setNameMsg(e.message || "No se pudo guardar"); }
+    finally { setSavingName(false); setTimeout(() => setNameMsg(""), 2500); }
+  };
+
+  const savePassword = async () => {
+    setPwErr(""); setPwMsg("");
+    if (pw.length < 6) { setPwErr("La contraseña debe tener al menos 6 caracteres."); return; }
+    if (pw !== pw2) { setPwErr("Las contraseñas no coinciden."); return; }
+    setSavingPw(true);
+    try { await onChangePassword(pw); setPw(""); setPw2(""); setPwMsg("Contraseña actualizada"); }
+    catch (e) { setPwErr(e.message || "No se pudo cambiar la contraseña."); }
+    finally { setSavingPw(false); }
+  };
+
+  return (
+    <div className="max-w-md space-y-4">
+      <Card className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <UserCircle size={14} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200">Mi nombre</span>
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Field label="Nombre">
+              <input className={inputCls} value={nombre} onChange={(e) => setNombre(e.target.value)} />
+            </Field>
+          </div>
+          <Btn onClick={saveName} disabled={savingName || !nombre.trim() || nombre.trim() === profile?.nombre} className="py-2 px-3 text-xs">
+            <Save size={12} /> {savingName ? "Guardando…" : "Guardar"}
+          </Btn>
+        </div>
+        {nameMsg && <p className="mt-2 text-xs text-teal-400">{nameMsg}</p>}
+      </Card>
+
+      <Card className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <KeyRound size={14} className="text-amber-400" />
+          <span className="text-sm font-semibold text-slate-200">Cambiar contraseña</span>
+        </div>
+        <div className="space-y-2">
+          <Field label="Nueva contraseña">
+            <input type="password" className={inputCls} value={pw} onChange={(e) => setPw(e.target.value)} />
+          </Field>
+          <Field label="Repite la contraseña">
+            <input type="password" className={inputCls} value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && savePassword()} />
+          </Field>
+          {pwErr && <p className="text-xs text-rose-400">{pwErr}</p>}
+          {pwMsg && <p className="text-xs text-teal-400">{pwMsg}</p>}
+          <Btn onClick={savePassword} disabled={savingPw || !pw || !pw2} className="text-xs">
+            {savingPw ? "Guardando…" : "Actualizar contraseña"}
+          </Btn>
+        </div>
+      </Card>
     </div>
   );
 }
