@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 
 const SUPERADMIN_ID = "5ecb861d-7d41-4d01-a916-72eb1c2b1817";
 import {
   Truck, MapPin, Clock, Route, Plus, Trash2, Download, Upload, Zap,
-  ChevronRight, AlertTriangle, Database, Map, GitCompare, X, Save,
+  ChevronRight, ChevronDown, AlertTriangle, Database, Map, GitCompare, X, Save,
   TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
   Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog,
-  UserCircle, KeyRound, UserPlus, Ban, Mail
+  UserCircle, KeyRound, UserPlus, Ban, Mail, ExternalLink, Copy
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -22,6 +22,14 @@ import {
   getRutasGuardadas, addRutaGuardada, updateRutaGuardada, removeRutaGuardada,
   getAllRutasActivas, saveRutaActiva, clearRutaActiva, subscribeRutasActivas,
 } from "./lib/supabase";
+
+// Leaflet pesa lo suyo: se carga solo cuando se muestra un mapa (chunk aparte).
+const LeafletMap = lazy(() => import("./components/LeafletMap"));
+const MapFallback = ({ className }) => (
+  <div className={`flex items-center justify-center bg-slate-950/50 text-xs text-slate-500 ${className || ""}`}>
+    Cargando mapa…
+  </div>
+);
 
 /* ============================================================
    Utilidades
@@ -279,6 +287,7 @@ const TYPE_META = {
   entrega: { label: "Entrega", dot: "bg-teal-400" },
   recoleccion: { label: "Recolección", dot: "bg-sky-400" },
 };
+const CITY_FALLBACK = { lat: 19.4326, lng: -99.1332 }; // fallback si no hay depósito con coordenadas
 const Empty = ({ children }) => (
   <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/30 px-4 py-8 text-center text-sm text-slate-500">{children}</div>
 );
@@ -684,7 +693,7 @@ export default function OptimizadorRutas() {
           </nav>
         )}
 
-        {tab === "puntos"    && <PuntosTab points={points} onAddPunto={onAddPunto} onUpdatePunto={onUpdatePunto} onRemovePunto={onRemovePunto} />}
+        {tab === "puntos"    && <PuntosTab points={points} recorridos={recorridos} onAddPunto={onAddPunto} onUpdatePunto={onUpdatePunto} onRemovePunto={onRemovePunto} />}
         {tab === "registrar" && <RegistrarTab points={points} onAddRecorrido={onAddRecorrido} />}
         {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
@@ -1052,7 +1061,11 @@ function MonitorTab({ activeRoutes, profiles, onLiberar }) {
 /* ============================================================
    Tab: Puntos
    ============================================================ */
-function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
+const isValidLat = (v) => v.trim() !== "" && !isNaN(Number(v)) && Number(v) >= -90 && Number(v) <= 90;
+const isValidLng = (v) => v.trim() !== "" && !isNaN(Number(v)) && Number(v) >= -180 && Number(v) <= 180;
+const googleMapsUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+
+function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunto }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("entrega");
   const [lat, setLat] = useState("");
@@ -1060,9 +1073,29 @@ function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
+  const [err, setErr] = useState("");
+  const [expandedId, setExpandedId] = useState(null);
+
+  // Centro por defecto del mapa al crear: el depósito con coordenadas, o la ciudad.
+  const defaultCenter = useMemo(() => {
+    const dep = points.find((p) => p.type === "deposito" && p.lat != null && p.lng != null);
+    return dep ? { lat: dep.lat, lng: dep.lng } : CITY_FALLBACK;
+  }, [points]);
+
+  // Nombre duplicado (ignorando mayúsculas/espacios), excluyendo el propio punto en edición.
+  const nameTaken = useMemo(() => {
+    const n = name.trim().toLowerCase();
+    if (!n) return false;
+    return points.some((p) => p.id !== editId && p.name.trim().toLowerCase() === n);
+  }, [points, name, editId]);
+
+  const hasValidCoords = isValidLat(lat) && isValidLng(lng);
+  const mapLat = hasValidCoords ? Number(lat) : undefined;
+  const mapLng = hasValidCoords ? Number(lng) : undefined;
 
   const startEdit = (p) => {
     setEditId(p.id);
+    setErr("");
     setName(p.name);
     setType(p.type);
     setLat(p.lat != null ? String(p.lat) : "");
@@ -1071,14 +1104,20 @@ function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
 
   const cancelEdit = () => {
     setEditId(null);
+    setErr("");
     setName(""); setType("entrega"); setLat(""); setLng("");
   };
 
   const save = async () => {
-    if (!name.trim() || busy) return;
+    const trimmedName = name.trim();
+    if (!trimmedName || busy) return;
+    setErr("");
+    if (nameTaken) { setErr("Ya existe un punto con ese nombre."); return; }
+    if (lat.trim() && !isValidLat(lat)) { setErr("Latitud inválida: debe estar entre -90 y 90."); return; }
+    if (lng.trim() && !isValidLng(lng)) { setErr("Longitud inválida: debe estar entre -180 y 180."); return; }
     setBusy(true);
     try {
-      const payload = { name: name.trim(), type, lat: lat ? parseFloat(lat) : null, lng: lng ? parseFloat(lng) : null };
+      const payload = { name: trimmedName, type, lat: lat.trim() ? parseFloat(lat) : null, lng: lng.trim() ? parseFloat(lng) : null };
       if (editId) {
         await onUpdatePunto(editId, payload);
         setEditId(null);
@@ -1086,12 +1125,29 @@ function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
         await onAddPunto(payload);
       }
       setName(""); setType("entrega"); setLat(""); setLng("");
+    } catch (e) {
+      setErr(e?.code === "23505" ? "Ya existe un punto con ese nombre." : (e?.message || "No se pudo guardar el punto."));
     } finally { setBusy(false); }
   };
 
   const remove = async (id) => {
+    const target = points.find((p) => p.id === id);
+    const enRecorridos = recorridos.filter((R) => R.stops.some((s) => s.point === id));
+    const seEliminarian = enRecorridos.filter((R) => R.stops.filter((s) => s.point !== id).length < 2);
+    const detalle = enRecorridos.length
+      ? `Está en ${enRecorridos.length} recorrido${enRecorridos.length === 1 ? "" : "s"}.` +
+        (seEliminarian.length
+          ? ` ${seEliminarian.length} quedaría${seEliminarian.length === 1 ? "" : "n"} con menos de 2 paradas y se eliminaría${seEliminarian.length === 1 ? "" : "n"} también.`
+          : "")
+      : "No está en ningún recorrido.";
+    if (!window.confirm(`¿Eliminar "${target?.name ?? "este punto"}"?\n\n${detalle}`)) return;
     if (editId === id) cancelEdit();
+    if (expandedId === id) setExpandedId(null);
     await onRemovePunto(id);
+  };
+
+  const copyCoords = async (p) => {
+    try { await navigator.clipboard.writeText(`${p.lat}, ${p.lng}`); } catch { /* portapapeles no disponible */ }
   };
 
   const filtered = search.trim()
@@ -1111,6 +1167,7 @@ function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
           <Field label="Nombre">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Almacén / Cliente / Sucursal" />
           </Field>
+          {nameTaken && <p className="text-xs text-rose-400">Ya existe un punto con ese nombre.</p>}
           <Field label="Tipo">
             <div className="flex gap-1">
               {Object.entries(TYPE_META).map(([k, v]) => (
@@ -1125,14 +1182,25 @@ function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
             <Field label="Latitud (opcional)"><input className={inputCls} value={lat} onChange={(e) => setLat(e.target.value)} placeholder="19.4326" /></Field>
             <Field label="Longitud (opcional)"><input className={inputCls} value={lng} onChange={(e) => setLng(e.target.value)} placeholder="-99.1332" /></Field>
           </div>
-          <p className="text-xs text-slate-500">Coordenadas opcionales: solo estiman tramos que aún no has manejado.</p>
+          <Suspense fallback={<MapFallback className="h-56 w-full rounded-lg" />}>
+            <LeafletMap
+              interactive
+              className="h-56 w-full overflow-hidden rounded-lg"
+              lat={mapLat}
+              lng={mapLng}
+              defaultCenter={defaultCenter}
+              onPick={(la, ln) => { setLat(la.toFixed(6)); setLng(ln.toFixed(6)); }}
+            />
+          </Suspense>
+          <p className="text-xs text-slate-500">Coordenadas opcionales: haz clic en el mapa o arrastra el pin para fijarlas; también puedes teclearlas.</p>
+          {err && <p className="text-xs text-rose-400">{err}</p>}
           <div className="flex gap-2">
             {editId && (
               <Btn variant="ghost" onClick={cancelEdit} className="flex-1 justify-center">
                 <X size={16} /> Cancelar
               </Btn>
             )}
-            <Btn onClick={save} disabled={busy} className={`${editId ? "flex-1" : "w-full"} justify-center`}>
+            <Btn onClick={save} disabled={busy || nameTaken} className={`${editId ? "flex-1" : "w-full"} justify-center`}>
               {editId ? <><Save size={16} /> Guardar cambios</> : <><Plus size={16} /> Agregar punto</>}
             </Btn>
           </div>
@@ -1157,25 +1225,65 @@ function PuntosTab({ points, onAddPunto, onUpdatePunto, onRemovePunto }) {
         ) : filtered.length === 0 ? (
           <Empty>Sin resultados para <span className="text-slate-300">"{search}"</span>.</Empty>
         ) : (
-          <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+          <ul className="max-h-[28rem] space-y-1.5 overflow-y-auto pr-1">
             {filtered.map((p) => (
               <li key={p.id}
-                className={`flex items-center gap-3 rounded-lg border bg-slate-950/50 px-3 py-2 transition ${editId === p.id ? "border-amber-500/50 bg-amber-500/5" : "border-slate-800"}`}>
-                <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-slate-200">{p.name}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {TYPE_META[p.type].label}
-                    {p.lat != null && p.lng != null && <span className="font-mono"> · {p.lat.toFixed(4)}, {p.lng.toFixed(4)}</span>}
+                className={`rounded-lg border bg-slate-950/50 transition ${editId === p.id ? "border-amber-500/50 bg-amber-500/5" : "border-slate-800"}`}>
+                <div role="button" tabIndex={0}
+                  onClick={() => setExpandedId((cur) => cur === p.id ? null : p.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedId((cur) => cur === p.id ? null : p.id); } }}
+                  className="flex cursor-pointer items-center gap-3 px-3 py-2">
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-slate-200">{p.name}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {TYPE_META[p.type].label}
+                      {p.lat != null && p.lng != null && <span className="font-mono"> · {p.lat.toFixed(4)}, {p.lng.toFixed(4)}</span>}
+                    </div>
                   </div>
+                  <ChevronDown size={15}
+                    className={`shrink-0 transition ${expandedId === p.id ? "rotate-180 text-amber-400" : "text-slate-600"}`} />
+                  <button onClick={(e) => { e.stopPropagation(); editId === p.id ? cancelEdit() : startEdit(p); }}
+                    className={`shrink-0 transition ${editId === p.id ? "text-amber-400" : "text-slate-600 hover:text-amber-400"}`}>
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); remove(p.id); }} className="shrink-0 text-slate-600 hover:text-rose-400">
+                    <Trash2 size={15} />
+                  </button>
                 </div>
-                <button onClick={() => editId === p.id ? cancelEdit() : startEdit(p)}
-                  className={`transition ${editId === p.id ? "text-amber-400" : "text-slate-600 hover:text-amber-400"}`}>
-                  <Pencil size={14} />
-                </button>
-                <button onClick={() => remove(p.id)} className="text-slate-600 hover:text-rose-400">
-                  <Trash2 size={15} />
-                </button>
+                {expandedId === p.id && (
+                  <div className="space-y-2 border-t border-slate-800 px-3 py-3">
+                    {p.lat != null && p.lng != null ? (
+                      <>
+                        <Suspense fallback={<MapFallback className="h-40 w-full rounded-lg" />}>
+                          <LeafletMap className="h-40 w-full overflow-hidden rounded-lg" lat={p.lat} lng={p.lng} />
+                        </Suspense>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-mono text-slate-400">{p.lat.toFixed(6)}, {p.lng.toFixed(6)}</span>
+                          <button onClick={() => copyCoords(p)} className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-300">
+                            <Copy size={12} /> Copiar
+                          </button>
+                        </div>
+                        <a href={googleMapsUrl(p)} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700">
+                          <ExternalLink size={13} /> Ver ubicación en Google Maps
+                        </a>
+                      </>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-slate-500">Este punto no tiene coordenadas registradas.</p>
+                        <div className="flex items-center gap-2">
+                          <span className="flex flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-600">
+                            <ExternalLink size={13} /> Ver ubicación en Google Maps
+                          </span>
+                          <Btn variant="ghost" onClick={() => startEdit(p)} className="justify-center text-xs">
+                            <Pencil size={13} /> Agregar coordenadas
+                          </Btn>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

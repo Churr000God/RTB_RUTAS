@@ -17,6 +17,13 @@ create table if not exists public.puntos (
   created_at timestamptz not null default now()
 );
 
+-- Candado de nombre duplicado (case/espacios-insensible). Antes de aplicarlo en una
+-- base con datos, revisar que no existan ya duplicados:
+--   select lower(btrim(nombre)) as clave, count(*)
+--   from public.puntos group by 1 having count(*) > 1;
+create unique index if not exists puntos_nombre_unico
+  on public.puntos (lower(btrim(nombre)));
+
 -- ---------------------------------------------------------------------
 -- recorridos: cada recorrido es una unidad re-evaluable.
 -- Las paradas van en JSONB:
