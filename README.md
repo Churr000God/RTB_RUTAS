@@ -15,6 +15,15 @@ y mide cuánto tiempo se está desperdiciando por ruteo subóptimo.
   de regreso** a partir de una hora de inicio. La acción final es **asignar la ruta a un chofer**
   (obligatorio, con aviso si ya tiene una ruta esa fecha) o guardarla como plantilla sin asignar; el
   chofer la inicia desde su Ruta del día.
+- **Ruta del día (ejecución)** — el chofer ve su ruta asignada con un resumen siempre visible
+  (progreso, cronómetro, hora estimada de término, mapa) desde antes de iniciar. Elige el siguiente
+  punto con el **orden sugerido resaltado** (recalculable con "Re-sugerir orden"), puede **cambiar de
+  destino** mientras va en camino (antes de llegar), y ya en la parada registra **nota** y **estado de
+  entrega** (entregado/recolectado/no se pudo) además de km y comida/pausa, con mapa y botón directo
+  a Google Maps. Guarda el progreso también en el teléfono (**caché offline**) para no perderlo si se
+  cae la conexión, con indicador de conexión y re-sincronización automática. Permite **deshacer la
+  última acción** y muestra un **resumen detallado** al terminar. Un chofer solo puede tener una ruta
+  en ejecución a la vez (aunque se le puedan asignar varias).
 - **Registrar recorrido** — captura el recorrido real (tiempos de manejo, distancias y esperas). Alimenta el aprendizaje.
 - **Matriz aprendida** — tiempos punto a punto con su nivel de confianza (`×N` = nº de observaciones), filtrable por día de la semana.
 - **Análisis de ahorro** — compara tu orden real vs. el orden óptimo con la misma matriz, aislando el desperdicio de ruteo y mostrando su evolución en el tiempo.
@@ -66,9 +75,11 @@ La guía completa de integración y despliegue está en **[`docs/INTEGRACION.md`
 │   │   ├── LeafletMap.jsx   # mapa de un punto (alta/edición), lazy
 │   │   └── RouteMap.jsx     # mapa de una ruta completa (pines numerados + línea), lazy
 │   └── lib/
-│       ├── supabase.js      # cliente + capa de datos (auth + CRUD)
-│       ├── routing.js       # TSP (con anclajes), matrices, métricas, ETA — sin React, testeable
-│       └── routing.test.js  # pruebas unitarias (Vitest)
+│       ├── supabase.js         # cliente + capa de datos (auth + CRUD)
+│       ├── routing.js          # TSP (con anclajes), matrices, métricas, ETA — sin React, testeable
+│       ├── routing.test.js     # pruebas unitarias (Vitest)
+│       ├── rutaDiaCache.js     # caché offline de la ruta en curso (localStorage) — sin React, testeable
+│       └── rutaDiaCache.test.js
 ├── supabase/
 │   ├── schema.sql           # tablas + índices + políticas RLS (fuente de verdad, instalación nueva)
 │   └── migrations/          # parches incrementales fechados, uno por módulo

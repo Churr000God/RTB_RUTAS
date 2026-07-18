@@ -24,10 +24,11 @@ import {
   getAllRutasActivas, saveRutaActiva, clearRutaActiva, subscribeRutasActivas,
 } from "./lib/supabase";
 import {
-  mean, DOW, buildMatrices, buildWaits, solveTSP,
+  mean, DOW, buildMatrices, buildWaits, solveTSP, tourCost,
   deriveObservations, analizarAhorro, metricsForOrder, computeETAs,
   minToHHMM, parseHHMM,
 } from "./lib/routing";
+import { saveLocal, readLocal, clearLocal, reconcile } from "./lib/rutaDiaCache";
 
 // Leaflet pesa lo suyo: se carga solo cuando se muestra un mapa (chunk aparte).
 const LeafletMap = lazy(() => import("./components/LeafletMap"));
@@ -229,22 +230,36 @@ export default function OptimizadorRutas() {
   const lastWriteRef = useRef(0);
   const profileRef = useRef(null);   // copia sin stale-closure para el callback de realtime
 
+  // Indicador de conexión para la caché offline de ruta_activa (ver rutaDiaCache.js):
+  // "online" refleja el navegador; "syncOk" si la última escritura llegó a Supabase.
+  const [online, setOnline] = useState(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
+  const [syncOk, setSyncOk] = useState(true);
+
   // Wrapper que persiste el progreso a Supabase y actualiza el estado local.
   // Recibe profile como parámetro para evitar stale-closure (se llama desde callbacks).
+  // Escribe PRIMERO en localStorage (nunca falla, protege contra pérdida de progreso
+  // sin red) y luego intenta el upsert a Supabase.
   const updateRutaDia = useCallback((next, prof) => {
     setRutaDia(next);
     const p = prof ?? profileRef.current;
     if (!p) return;
     const stamp = Date.now();
     lastWriteRef.current = stamp;
+    const stamped = next ? { ...next, _w: stamp } : null;
+    if (stamped && !stamped.done) saveLocal(p.userId, stamped);
+    else clearLocal(p.userId);
     (async () => {
       try {
         if (next && !next.done) {
-          await saveRutaActiva(p.userId, p.nombre, { ...next, _w: stamp });
+          await saveRutaActiva(p.userId, p.nombre, stamped);
         } else {
           await clearRutaActiva(p.userId);
         }
-      } catch (e) { console.error("ruta_activa sync:", e); }
+        setSyncOk(true);
+      } catch (e) {
+        console.error("ruta_activa sync:", e);
+        setSyncOk(false);
+      }
     })();
   }, []);
 
@@ -268,17 +283,22 @@ export default function OptimizadorRutas() {
     setActiveRoutes(map);
     if (prof) {
       const dbState = activas.find((ra) => ra.driverId === prof.userId)?.state ?? null;
+      // Tercera fuente: la caché del teléfono (localStorage). reconcile() se queda
+      // con la de sello _w más reciente — cubre el caso de progreso guardado sin
+      // red que el servidor todavía no tiene.
+      const localState = readLocal(prof.userId);
+      const candidate = reconcile(localState, dbState);
       setRutaDia((prev) => {
-        // No pisar la pantalla "done" con estado viejo del DB si acabamos de terminar la ruta
+        // No pisar la pantalla "done" con estado viejo si acabamos de terminar la ruta
         if (prev?.done) return prev;
-        // No pisar progreso local con una lectura del DB más vieja que nuestra última
+        // No pisar progreso local con una lectura más vieja que nuestra última
         // escritura (lag de replicación / refresh disparado justo después de guardar).
-        if (dbState?._w !== undefined && dbState._w <= lastWriteRef.current) return prev;
-        // Si el DB no tiene fila pero ya escribimos progreso desde este dispositivo,
-        // asumimos que es una lectura adelantada al upsert (no un borrado real):
+        if (candidate?._w !== undefined && candidate._w <= lastWriteRef.current) return prev;
+        // Si no hay candidato (ni servidor ni caché) pero ya escribimos progreso desde
+        // este dispositivo, asumimos que es una lectura adelantada (no un borrado real):
         // el borrado real siempre llega también por el canal realtime (DELETE).
-        if (dbState == null && prev && !prev.done && lastWriteRef.current > 0) return prev;
-        return dbState;
+        if (candidate == null && prev && !prev.done && lastWriteRef.current > 0) return prev;
+        return candidate;
       });
     }
   }, []);
@@ -323,6 +343,8 @@ export default function OptimizadorRutas() {
           // con escrituras rápidas seguidas, el eco de una escritura anterior puede
           // llegar después de que ya aplicamos una más nueva, y pisarla hacia atrás.
           if (state?._w !== undefined && state._w <= lastWriteRef.current) return;
+          // Mantener la caché local al día con lo que confirma el servidor.
+          if (eventType === "DELETE") clearLocal(myId); else saveLocal(myId, state);
           // Si la ruta local ya está marcada como done, no la pisar con el DELETE de limpieza
           setRutaDia((prev) => {
             if (eventType === "DELETE") return prev?.done ? prev : null;
@@ -332,9 +354,28 @@ export default function OptimizadorRutas() {
       });
     } catch (e) { console.error("subscribeRutasActivas:", e); }
 
+    // Re-sincronización: al recuperar la conexión, empujar al servidor cualquier
+    // progreso que solo esté guardado en el teléfono (upsert previo fallido offline).
+    const handleOnline = () => {
+      setOnline(true);
+      const p = profileRef.current;
+      if (!p) return;
+      const local = readLocal(p.userId);
+      if (local && !local.done) {
+        saveRutaActiva(p.userId, p.nombre, local)
+          .then(() => setSyncOk(true))
+          .catch((e) => { console.error("re-sync ruta_activa:", e); setSyncOk(false); });
+      }
+    };
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     return () => {
       sub?.data?.subscription?.unsubscribe?.();
       if (realtimeChannel) { try { realtimeChannel.unsubscribe(); } catch {} }
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, [refresh]);
 
@@ -348,9 +389,13 @@ export default function OptimizadorRutas() {
     if (driverBlocked) setTab("ruta-dia");
   }, [driverBlocked]);
 
-  const onLoadRutaDia = ({ title, stops, closed }) => {
+  // Un chofer solo puede EJECUTAR una ruta a la vez (asignar varias sigue siendo
+  // libre). Se bloquea en vez de ofrecer "reemplazar" para no perder progreso.
+  const onLoadRutaDia = ({ title, stops, closed, horaInicio }) => {
     if (rutaDia && !rutaDia.done) {
-      if (!confirm("Ya hay una ruta activa. ¿Reemplazarla?")) return;
+      alert(`Ya tienes una ruta en curso ("${rutaDia.title}"). Termínala o cancélala antes de iniciar otra.`);
+      setTab("ruta-dia");
+      return;
     }
     const startStop = stops[0];
     const next = {
@@ -358,6 +403,7 @@ export default function OptimizadorRutas() {
       startId: startStop.id,
       startName: startStop.name,
       endId: closed ? startStop.id : null,
+      horaInicio: horaInicio ?? null,
       route: [],
       remaining: stops.slice(1).map((s) => ({ id: s.id, name: s.name })),
       phase: "initial",
@@ -381,7 +427,7 @@ export default function OptimizadorRutas() {
     await removeRutaGuardada(id);
     setRutasGuardadas((prev) => prev.filter((r) => r.id !== id));
   };
-  const onLoadRutaGuardada = (r) => onLoadRutaDia({ title: r.nombre, stops: r.stops, closed: r.closed });
+  const onLoadRutaGuardada = (r) => onLoadRutaDia({ title: r.nombre, stops: r.stops, closed: r.closed, horaInicio: r.horaInicio });
   const onLiberarRuta = async (driverId) => {
     if (!confirm("¿Liberar / cancelar la ruta de este chofer?")) return;
     try { await clearRutaActiva(driverId); } catch (e) { console.error(e); }
@@ -497,7 +543,7 @@ export default function OptimizadorRutas() {
         {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
         {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onSaveRutaGuardada={onSaveRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} profiles={profiles} />}
-        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profiles={profiles} />}
+        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profiles={profiles} online={online} syncOk={syncOk} />}
         {tab === "monitor"   && <MonitorTab activeRoutes={activeRoutes} profiles={profiles} onLiberar={onLiberarRuta} />}
         {tab === "datos"     && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
         {tab === "usuarios"  && <UsuariosTab profiles={profiles} currentUserId={profile?.userId} onUpdate={onUpdateProfileRole} onCrear={onAdminCrearUsuario} onResetPassword={adminResetPassword} onToggle={onAdminToggleUsuario} />}
@@ -863,6 +909,13 @@ function MonitorTab({ activeRoutes, profiles, onLiberar }) {
 const isValidLat = (v) => v.trim() !== "" && !isNaN(Number(v)) && Number(v) >= -90 && Number(v) <= 90;
 const isValidLng = (v) => v.trim() !== "" && !isNaN(Number(v)) && Number(v) >= -180 && Number(v) <= 180;
 const googleMapsUrl = (p) => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+const googleMapsDirUrl = (lat, lng) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+const ESTADO_ENTREGA = [
+  { value: "", label: "Sin registrar" },
+  { value: "entregado", label: "Entregado" },
+  { value: "recolectado", label: "Recolectado" },
+  { value: "no_se_pudo", label: "No se pudo" },
+];
 
 function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunto, onRemovePunto }) {
   const [name, setName] = useState("");
@@ -2022,7 +2075,55 @@ function AssignCard({ manualOrder, session, closed, horaInicio, onSaveRuta, ruta
 /* ============================================================
    Tab: Ruta del día
    ============================================================ */
-function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas = [], onLoadRutaGuardada, onUpdateRutaGuardada, onDeleteRutaGuardada, isAdmin = false, profiles = [] }) {
+/* Panel de una parada: mapa solo lectura + botón "Ir" (Google Maps) + nota + estado de entrega. */
+function StopInfoPanel({ point, nota, onNotaChange, estado, onEstadoChange, showNotaEstado = true }) {
+  const [open, setOpen] = useState(true);
+  const hasCoords = point?.lat != null && point?.lng != null;
+  return (
+    <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/40">
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <span className="flex items-center gap-1.5"><MapIcon size={13} /> Detalle de la parada</span>
+        <ChevronDown size={14} className={`transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-slate-800 px-3 py-3">
+          {hasCoords ? (
+            <Suspense fallback={<MapFallback className="h-36 w-full rounded-lg" />}>
+              <LeafletMap className="h-36 w-full overflow-hidden rounded-lg" lat={point.lat} lng={point.lng} />
+            </Suspense>
+          ) : (
+            <p className="rounded-lg border border-dashed border-slate-800 bg-slate-950/30 px-3 py-4 text-center text-xs text-slate-500">
+              Este punto no tiene coordenadas registradas.
+            </p>
+          )}
+          <a
+            href={hasCoords ? googleMapsDirUrl(point.lat, point.lng) : undefined}
+            target="_blank" rel="noreferrer"
+            onClick={(e) => { if (!hasCoords) e.preventDefault(); }}
+            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${hasCoords ? "bg-sky-600 text-white hover:bg-sky-500" : "cursor-not-allowed bg-slate-800 text-slate-600"}`}
+          >
+            <Navigation size={15} /> Ir (Google Maps)
+          </a>
+          {showNotaEstado && (
+            <>
+              <Field label="Nota de la parada (opcional)">
+                <input className={inputCls} value={nota} onChange={(e) => onNotaChange(e.target.value)} placeholder="Ej. Dejar en recepción" />
+              </Field>
+              <Field label="Estado de entrega">
+                <select className={inputCls} value={estado} onChange={(e) => onEstadoChange(e.target.value)}>
+                  {ESTADO_ENTREGA.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </Field>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, waits, rutasGuardadas = [], onLoadRutaGuardada, onUpdateRutaGuardada, onDeleteRutaGuardada, isAdmin = false, profiles = [], online = true, syncOk = true }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [extraSearch, setExtraSearch] = useState("");
@@ -2037,6 +2138,136 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
   const [editSearch, setEditSearch] = useState("");
   const [editAssignedTo, setEditAssignedTo] = useState(null);
   const [editSaving, setEditSaving] = useState(false);
+  // Deshacer última acción, resumen colapsable y cronómetro en vivo
+  const [prevSnapshot, setPrevSnapshot] = useState(null);
+  const [showResumen, setShowResumen] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Datos derivados de rutaDia con defaults seguros (rutaDia puede ser null aquí:
+  // todos los Hooks de abajo deben poder correr igual antes del early return).
+  const route = rutaDia?.route ?? [];
+  const remaining = rutaDia?.remaining ?? [];
+  const phase = rutaDia?.phase ?? null;
+  const startId = rutaDia?.startId ?? null;
+  const startName = rutaDia?.startName ?? "";
+  const closed = rutaDia?.closed ?? false;
+  const curStop = route.length > 0 ? route[route.length - 1] : null;
+
+  // Cronómetro: re-renderiza cada segundo mientras la ruta esté en curso.
+  useEffect(() => {
+    if (!rutaDia || rutaDia.done || route.length === 0) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [rutaDia?.done, route.length]);
+
+  // Orden sugerido de las paradas restantes, resuelto en vivo desde el origen
+  // actual (última parada visitada, o el inicio si aún no arranca). Reutiliza
+  // el mismo motor de ruteo que "Generación y carga de rutas".
+  const suggested = useMemo(() => {
+    if (!rutaDia || rutaDia.done) return null;
+    const originId = curStop ? curStop.id : startId;
+    if (!originId) return null;
+    const ids = [originId, ...remaining.map((s) => s.id)];
+    const sub = ids.map((id) => (allPoints || []).find((p) => p.id === id));
+    if (sub.some((p) => !p)) return null;
+    const n = sub.length;
+    if (n < 2) return { orderIds: [], sub, order: [0], timeM: null, distM: null, learned: null, W: null };
+    const { timeM, distM, learned } = buildMatrices(sub, segments || []);
+    const W = buildWaits(sub, waits || []);
+    const gap = (M) => { for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j && M[i][j] == null) return true; return false; };
+    if (gap(timeM)) return { orderIds: [], sub, order: sub.map((_, i) => i), timeM: null, distM: null, learned: null, W: null };
+    const solved = solveTSP(timeM, n, false);
+    const order = solved ? solved.order : sub.map((_, i) => i);
+    return { orderIds: order.slice(1).map((i) => sub[i].id), sub, order, timeM, distM, learned, W };
+  }, [rutaDia?.done, curStop?.id, startId, remaining, allPoints, segments, waits]);
+
+  // ETA por parada restante + hora estimada de término (siempre visible).
+  const etaInfo = useMemo(() => {
+    if (!rutaDia || rutaDia.done) return null;
+    const originId = curStop ? curStop.id : startId;
+    if (!originId) return null;
+    const originPoint = (allPoints || []).find((p) => p.id === originId);
+    if (!originPoint) return null;
+    const nowD = new Date();
+    const nowMin = nowD.getHours() * 60 + nowD.getMinutes();
+    const startMin = phase === "initial" && rutaDia.horaInicio
+      ? (parseHHMM(rutaDia.horaInicio) ?? nowMin)
+      : nowMin;
+
+    let horaMin = startMin;
+    let approx = false;
+    let etas = [];
+    if (suggested?.timeM && suggested.orderIds.length) {
+      const { sub, timeM, learned, W, order } = suggested;
+      const res = computeETAs(order, { sub, timeM, learned, W, closed: false }, startMin, 0);
+      etas = res.etas;
+      horaMin = etas.length ? etas[etas.length - 1].etaMin : startMin;
+      approx = etas.length ? etas[etas.length - 1].approx : false;
+    }
+    if (closed) {
+      const lastId = etas.length ? etas[etas.length - 1].id : originId;
+      const depotPoint = (allPoints || []).find((p) => p.id === startId);
+      const lastPoint = lastId === originId ? originPoint : (allPoints || []).find((p) => p.id === lastId);
+      if (depotPoint && lastPoint && lastPoint.id !== depotPoint.id) {
+        const { timeM: retM, learned: retL } = buildMatrices([lastPoint, depotPoint], segments || []);
+        if (retM[0][1] != null) { horaMin += retM[0][1]; if (!retL[0][1]) approx = true; }
+      }
+    }
+    return { etas, horaTerminoMin: horaMin, approxTermino: approx };
+  }, [rutaDia?.done, rutaDia?.horaInicio, curStop?.id, startId, phase, closed, suggested, allPoints, segments]);
+
+  // Paradas (visitadas + pendientes en orden sugerido) para el mapa del resumen.
+  const resumenMapStops = useMemo(() => {
+    if (!rutaDia) return [];
+    const byId = (id) => (allPoints || []).find((p) => p.id === id);
+    const visited = route.map((s) => { const p = byId(s.id); return { id: s.id, name: s.name, lat: p?.lat, lng: p?.lng }; });
+    const pendingIds = suggested?.orderIds?.length ? suggested.orderIds : remaining.map((s) => s.id);
+    const pending = pendingIds.map((id) => {
+      const s = remaining.find((r) => r.id === id);
+      const p = byId(id);
+      return { id, name: s?.name || p?.name || "", lat: p?.lat, lng: p?.lng };
+    });
+    return [...visited, ...pending];
+  }, [rutaDia, route, remaining, suggested, allPoints]);
+
+  // Resumen detallado para la pantalla de cierre.
+  const doneSummary = useMemo(() => {
+    if (!rutaDia?.done) return null;
+    const r = rutaDia.route || [];
+    if (r.length < 2) return null;
+    let totMin = 0, totKm = 0, totWaitMin = 0, totComidaMin = 0;
+    for (let i = 0; i < r.length; i++) {
+      const s = r[i];
+      totComidaMin += (s.legBreakMin || 0) + (s.waitBreakMin || 0);
+      if (i > 0) {
+        const prev = r[i - 1];
+        if (prev.departedAt && s.arrivedAt) {
+          totMin += Math.max(0, Math.round((s.arrivedAt - prev.departedAt) / 60000) - (s.legBreakMin || 0));
+        }
+        if (s.legKm && !isNaN(+s.legKm)) totKm += +s.legKm;
+      }
+      if (s.arrivedAt && s.departedAt) {
+        totWaitMin += Math.max(0, Math.round((s.departedAt - s.arrivedAt) / 60000) - (s.waitBreakMin || 0));
+      }
+    }
+    const lastTs = r[r.length - 1].departedAt || r[r.length - 1].arrivedAt;
+    const totalMinRuta = r[0].arrivedAt && lastTs ? Math.round((lastTs - r[0].arrivedAt) / 60000) : null;
+
+    let delta = null;
+    const sub = r.map((s) => (allPoints || []).find((p) => p.id === s.id));
+    if (sub.every(Boolean) && sub.length >= 2) {
+      const { timeM } = buildMatrices(sub, segments || []);
+      const n = sub.length;
+      const gap = (M) => { for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j && M[i][j] == null) return true; return false; };
+      if (!gap(timeM)) {
+        const realOrder = sub.map((_, i) => i);
+        const realCost = tourCost(realOrder, timeM, rutaDia.closed);
+        const opt = solveTSP(timeM, n, rutaDia.closed);
+        if (opt) delta = Math.max(0, realCost - opt.cost);
+      }
+    }
+    return { totMin, totKm, totWaitMin, totComidaMin, totalMinRuta, visitedCount: r.length, delta };
+  }, [rutaDia?.done, rutaDia?.route, rutaDia?.closed, allPoints, segments]);
 
   const startEdit = (r) => { setEditId(r.id); setEditStops(r.stops); setEditSearch(""); setEditAssignedTo(r.assignedTo ?? ""); };
   const cancelEdit = () => { setEditId(null); setEditStops([]); setEditSearch(""); setEditAssignedTo(null); };
@@ -2221,8 +2452,12 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
     );
   }
 
-  const { title, closed, startId, startName, endId, route, remaining, phase, nextStop, nextLegKm, done } = rutaDia;
+  const { title, endId, nextStop, nextLegKm, done } = rutaDia;
   const patch = (updates) => setRutaDia({ ...rutaDia, ...updates });
+  const patchCurStop = (fields) => {
+    patch({ route: route.map((s, i) => i === route.length - 1 ? { ...s, ...fields } : s) });
+  };
+  const withSnapshot = (fn) => (...args) => { setPrevSnapshot(rutaDia); fn(...args); };
 
   /* Puntos disponibles como "extra" (no planificados, no visitados, no el inicio) */
   const visitedIds = new Set(route.map((s) => s.id));
@@ -2230,6 +2465,9 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
   const extraPoints = (allPoints || []).filter(
     (p) => !visitedIds.has(p.id) && !remainingIds.has(p.id) && p.id !== startId
   );
+
+  const totalPlanned = route.length + remaining.length;
+  const elapsedMin = route.length > 0 && route[0].arrivedAt ? Math.max(0, Math.round((nowTick - route[0].arrivedAt) / 60000)) : 0;
 
   const saveRoute = async (finalRoute) => {
     if (finalRoute.length < 2) { setErr("Se necesitan al menos 2 paradas para guardar."); return; }
@@ -2250,33 +2488,36 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
         point: stop.id, legMin, legKm, waitMin,
         legBreakMin, waitBreakMin,
         breakNote: stop.breakNote || null,
+        nota: stop.nota || null,
+        estado: stop.estado || null,
       };
     });
     setSaving(true); setErr("");
     try {
       await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops });
       patch({ route: finalRoute, done: true });
+      setPrevSnapshot(null);
     } catch { setErr("Error al guardar. Intenta de nuevo."); }
     finally { setSaving(false); }
   };
 
   /* -------- Handlers por fase -------- */
-  const handleInitialArrival = () => {
+  const handleInitialArrival = withSnapshot(() => {
     patch({
       route: [{ id: startId, name: startName, arrivedAt: Date.now(), departedAt: null, legKm: "" }],
       phase: "at-stop",
     });
-  };
+  });
 
-  const handleDeparture = () => {
+  const handleDeparture = withSnapshot(() => {
     const now = Date.now();
     patch({
       route: route.map((s, i) => i === route.length - 1 ? { ...s, departedAt: now } : s),
       phase: "choose-next",
     });
-  };
+  });
 
-  const handleSelectNext = (stop) => {
+  const handleSelectNext = withSnapshot((stop) => {
     patch({
       remaining: remaining.filter((s) => s.id !== stop.id),
       nextStop: stop,
@@ -2284,9 +2525,11 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
       phase: "traveling",
     });
     setExtraSearch("");
-  };
+  });
 
-  const handleArrival = async () => {
+  // Nota y estado de entrega se registran ya en la parada (fase "at-stop"),
+  // no antes de llegar: la parada arranca sin ellos y se llenan con patchCurStop.
+  const handleArrival = withSnapshot(async () => {
     const newStop = {
       ...nextStop, arrivedAt: Date.now(), departedAt: null, legKm: nextLegKm,
       legBreakMin: pendingLegBreakMin > 0 ? pendingLegBreakMin : 0,
@@ -2299,6 +2542,28 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
     } else {
       patch({ route: newRoute, nextStop: null, nextLegKm: "", phase: "at-stop" });
     }
+  });
+
+  const handleChangeDestino = withSnapshot(() => {
+    if (!nextStop) return;
+    patch({
+      remaining: [...remaining, nextStop],
+      nextStop: null, nextLegKm: "",
+      phase: "choose-next",
+    });
+    setPendingLegBreakMin(0);
+  });
+
+  const handleResuggest = () => {
+    if (!suggested?.orderIds?.length) return;
+    setPrevSnapshot(rutaDia);
+    patch({ remaining: suggested.orderIds.map((id) => remaining.find((s) => s.id === id)).filter(Boolean) });
+  };
+
+  const handleUndo = () => {
+    if (!prevSnapshot) return;
+    setRutaDia(prevSnapshot);
+    setPrevSnapshot(null);
   };
 
   const handleTerminate = () => saveRoute(route);
@@ -2332,8 +2597,6 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
     if (confirm("¿Cancelar la ruta del día? Se perderán los tiempos registrados.")) setRutaDia(null);
   };
 
-  const curStop = route.length > 0 ? route[route.length - 1] : null;
-
   /* -------- Done -------- */
   if (done) {
     return (
@@ -2341,6 +2604,19 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
         <CheckCircle2 size={44} className="mx-auto mb-3 text-teal-400" />
         <h2 className="mb-1 text-base font-semibold text-slate-200">¡Ruta completada!</h2>
         <p className="mb-5 text-sm text-slate-400">El recorrido fue guardado y ya alimenta el aprendizaje del sistema.</p>
+        {doneSummary && (
+          <div className="mx-auto mb-5 grid max-w-md grid-cols-2 gap-2 text-left sm:grid-cols-3">
+            <Stat label="Paradas visitadas" value={doneSummary.visitedCount} />
+            <Stat label="Tiempo total" value={doneSummary.totalMinRuta != null ? fmtMin(doneSummary.totalMinRuta) : "—"} />
+            <Stat label="Manejo" value={fmtMin(doneSummary.totMin)} />
+            <Stat label="Distancia" value={fmtKm(doneSummary.totKm)} />
+            <Stat label="Espera" value={fmtMin(doneSummary.totWaitMin)} />
+            {doneSummary.totComidaMin > 0 && <Stat label="Comida/Pausa" value={fmtMin(doneSummary.totComidaMin)} />}
+            {doneSummary.delta != null && (
+              <Stat label="Vs. óptimo" value={doneSummary.delta > 0 ? `+${fmtMin(doneSummary.delta)}` : "Óptimo"} highlight={doneSummary.delta > 0} />
+            )}
+          </div>
+        )}
         <Btn variant="ghost" onClick={() => setRutaDia(null)}>Nueva ruta del día</Btn>
       </Card>
     );
@@ -2348,17 +2624,62 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
 
   return (
     <div className="space-y-4">
-      {/* Encabezado */}
+      {/* Encabezado / resumen de ruta — siempre visible, incluso antes de iniciar */}
       <Card className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-200">Ruta del día · {title}</h2>
-            <p className="text-xs text-slate-500">
-              {route.length} visitadas · {remaining.length} planificadas pendientes · {closed ? "Ruta cerrada" : "Ruta abierta"}
-            </p>
+            <p className="mt-0.5 text-xs text-slate-500">{closed ? "Ruta cerrada" : "Ruta abierta"}</p>
           </div>
-          {isAdmin && <Btn variant="danger" onClick={cancel}>Cancelar ruta</Btn>}
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${online && syncOk ? "bg-teal-900/40 text-teal-300" : "bg-orange-900/40 text-orange-300"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${online && syncOk ? "bg-teal-400" : "bg-orange-400"}`} />
+              {online && syncOk ? "En línea" : "Sin conexión · guardado en el teléfono"}
+            </span>
+            {isAdmin && <Btn variant="danger" onClick={cancel}>Cancelar ruta</Btn>}
+          </div>
         </div>
+
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+          <div className="h-full rounded-full bg-teal-500 transition-all"
+            style={{ width: `${totalPlanned ? Math.min(100, (route.length / totalPlanned) * 100) : 0}%` }} />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Stat label="Progreso" value={`${route.length}/${totalPlanned}`} />
+          <Stat label="Tiempo en ruta" value={route.length > 0 ? fmtMin(elapsedMin) : "—"} />
+          <Stat label="Hora estim. término" highlight
+            value={etaInfo?.horaTerminoMin != null ? `${etaInfo.approxTermino ? "≈ " : ""}${minToHHMM(etaInfo.horaTerminoMin)}` : "—"} />
+          <Stat label="Pendientes" value={remaining.length} />
+        </div>
+
+        <button onClick={() => setShowResumen((v) => !v)}
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-400 transition hover:text-slate-200">
+          <span className="flex items-center gap-1.5"><MapIcon size={13} /> Ver paradas y mapa de la ruta</span>
+          <ChevronDown size={14} className={`transition ${showResumen ? "rotate-180" : ""}`} />
+        </button>
+        {showResumen && (
+          <div className="mt-3 space-y-3">
+            <Suspense fallback={<MapFallback className="h-56 w-full rounded-lg" />}>
+              <RouteMap className="h-56 w-full overflow-hidden rounded-lg" stops={resumenMapStops} closed={closed} />
+            </Suspense>
+            <ul className="space-y-1">
+              {route.map((s, i) => (
+                <li key={`v-${i}`} className="flex items-center gap-2 rounded border border-teal-900/40 bg-teal-950/20 px-2.5 py-1.5 text-xs">
+                  <CheckCircle2 size={13} className="shrink-0 text-teal-400" />
+                  <span className="flex-1 text-teal-200">{s.name}</span>
+                  {s.estado && <span className="text-[10px] text-slate-500">{ESTADO_ENTREGA.find((o) => o.value === s.estado)?.label}</span>}
+                </li>
+              ))}
+              {(suggested?.orderIds?.length ? suggested.orderIds.map((id) => remaining.find((s) => s.id === id)).filter(Boolean) : remaining).map((s, i) => (
+                <li key={`p-${s.id}`} className={`flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${i === 0 ? "border-amber-500/50 bg-amber-500/5" : "border-slate-800 bg-slate-950/40"}`}>
+                  <span className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${i === 0 ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>{i + 1}</span>
+                  <span className={`flex-1 ${i === 0 ? "text-amber-200" : "text-slate-300"}`}>{s.name}</span>
+                  {i === 0 && <span className="text-[10px] text-amber-500">Sugerido</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Card>
 
       {/* Historial de paradas visitadas */}
@@ -2394,6 +2715,8 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
                       {(stop.legBreakMin > 0 || stop.waitBreakMin > 0) && (
                         <span className="text-slate-500">🍽 <span className="text-orange-300">{fmtMin((stop.legBreakMin || 0) + (stop.waitBreakMin || 0))}</span>{stop.breakNote && <span className="ml-0.5 text-slate-500">({stop.breakNote})</span>}</span>
                       )}
+                      {stop.estado && <span className="text-slate-500">· <span className="text-sky-300">{ESTADO_ENTREGA.find((o) => o.value === stop.estado)?.label}</span></span>}
+                      {stop.nota && <span className="text-slate-500">· "{stop.nota}"</span>}
                     </div>
                   </div>
                 </li>
@@ -2405,6 +2728,12 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
 
       {/* Tarjeta de acción */}
       <Card className="p-4">
+        {prevSnapshot && (
+          <div className="mb-3 flex justify-end">
+            <Btn variant="ghost" onClick={handleUndo} className="py-1 px-2.5 text-xs">Deshacer última acción</Btn>
+          </div>
+        )}
+
         {/* Fase: inicio */}
         {phase === "initial" && (
           <>
@@ -2426,6 +2755,16 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
               )}
             </p>
             {err && <p className="mb-2 text-xs text-rose-400">{err}</p>}
+            {/* El almacén (inicio) no tiene nota/estado de entrega — no aplica */}
+            {curStop.id !== startId && (
+              <StopInfoPanel
+                point={(allPoints || []).find((p) => p.id === curStop.id)}
+                nota={curStop.nota || ""}
+                onNotaChange={(v) => patchCurStop({ nota: v })}
+                estado={curStop.estado || ""}
+                onEstadoChange={(v) => patchCurStop({ estado: v })}
+              />
+            )}
             {/* Pausa activa */}
             {onBreak ? (
               <div className="mb-3 rounded-lg border border-orange-800/50 bg-orange-950/20 p-3">
@@ -2452,22 +2791,38 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
         {/* Fase: elegir próximo destino */}
         {phase === "choose-next" && (
           <>
-            <h3 className="mb-3 text-sm font-semibold text-slate-200">¿A dónde vas ahora?</h3>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-200">¿A dónde vas ahora?</h3>
+              {remaining.length > 1 && suggested?.orderIds?.length > 0 && (
+                <Btn variant="ghost" onClick={handleResuggest} className="py-1 px-2.5 text-xs">
+                  <Zap size={12} /> Re-sugerir orden
+                </Btn>
+              )}
+            </div>
 
             {remaining.length > 0 && (
               <div className="mb-4">
                 <p className="mb-2 text-[11px] uppercase tracking-wider text-slate-500">Paradas planificadas pendientes</p>
                 <ul className="space-y-1.5">
-                  {remaining.map((stop) => (
-                    <li key={stop.id}>
-                      <button onClick={() => handleSelectNext(stop)}
-                        className="flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2.5 text-left transition hover:border-slate-600">
-                        <MapPin size={14} className="shrink-0 text-amber-400" />
-                        <span className="text-sm text-slate-200">{stop.name}</span>
-                        <ChevronRight size={14} className="ml-auto text-slate-600" />
-                      </button>
-                    </li>
-                  ))}
+                  {remaining.map((stop) => {
+                    const badge = suggested?.orderIds?.indexOf(stop.id);
+                    const isSuggested = badge === 0;
+                    return (
+                      <li key={stop.id}>
+                        <button onClick={() => handleSelectNext(stop)}
+                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${isSuggested ? "border-amber-500/50 bg-amber-500/5 hover:border-amber-400" : "border-slate-800 bg-slate-950/50 hover:border-slate-600"}`}>
+                          {badge != null && badge >= 0 ? (
+                            <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${isSuggested ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>{badge + 1}</span>
+                          ) : (
+                            <MapPin size={14} className="shrink-0 text-amber-400" />
+                          )}
+                          <span className={`text-sm ${isSuggested ? "text-amber-200" : "text-slate-200"}`}>{stop.name}</span>
+                          {isSuggested && <span className="text-[10px] text-amber-500">Sugerido</span>}
+                          <ChevronRight size={14} className="ml-auto text-slate-600" />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -2533,7 +2888,17 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
         {/* Fase: viajando */}
         {phase === "traveling" && nextStop && (
           <>
-            <h3 className="mb-3 text-sm font-semibold text-slate-200">En camino a {nextStop.name}</h3>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-200">En camino a {nextStop.name}</h3>
+              <Btn variant="ghost" onClick={handleChangeDestino} className="py-1 px-2.5 text-xs">
+                <GitCompare size={12} /> Cambiar destino
+              </Btn>
+            </div>
+            {/* Nota y estado de entrega se registran al llegar (fase "at-stop"), no antes */}
+            <StopInfoPanel
+              point={(allPoints || []).find((p) => p.id === nextStop.id)}
+              showNotaEstado={false}
+            />
             <div className="mb-3">
               <Field label="Km recorridos en este tramo">
                 <input className={inputCls} type="number" min="0" step="0.1"
