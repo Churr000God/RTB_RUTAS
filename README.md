@@ -7,9 +7,14 @@ y mide cuánto tiempo se está desperdiciando por ruteo subóptimo.
 
 ## ¿Qué hace?
 
-- **Optimizar** — dado un conjunto de paradas y un punto de inicio, calcula la mejor secuencia.
-  Óptimo exacto (Held–Karp) hasta 12 puntos; heurística (vecino más cercano + 2-opt/Or-opt) arriba.
-  Cada punto se visita una sola vez.
+- **Generación y carga de rutas** (antes "Optimizar") — dado un conjunto de paradas y un punto de
+  inicio, calcula la mejor secuencia (óptimo exacto Held–Karp hasta 12 puntos; heurística vecino más
+  cercano + 2-opt/Or-opt arriba) y permite **reordenarla a mano** (arrastrar o botones ↑/↓) con
+  recálculo instantáneo y comparación contra el óptimo, **anclar paradas** a una posición fija,
+  verla en un **mapa** con pines numerados y línea de secuencia, y calcular **ETA por parada y hora
+  de regreso** a partir de una hora de inicio. La acción final es **asignar la ruta a un chofer**
+  (obligatorio, con aviso si ya tiene una ruta esa fecha) o guardarla como plantilla sin asignar; el
+  chofer la inicia desde su Ruta del día.
 - **Registrar recorrido** — captura el recorrido real (tiempos de manejo, distancias y esperas). Alimenta el aprendizaje.
 - **Matriz aprendida** — tiempos punto a punto con su nivel de confianza (`×N` = nº de observaciones), filtrable por día de la semana.
 - **Análisis de ahorro** — compara tu orden real vs. el orden óptimo con la misma matriz, aislando el desperdicio de ruteo y mostrando su evolución en el tiempo.
@@ -27,11 +32,13 @@ npm install
 cp .env.example .env      # rellena con TUS valores de Supabase (anon public key)
 npm run dev               # desarrollo
 npm run build             # producción → ./dist
+npm run test               # pruebas unitarias (Vitest) del núcleo de ruteo
 ```
 
 1. Ejecuta `supabase/schema.sql` en el SQL Editor de tu proyecto Supabase.
-2. Activa Email Auth y crea un usuario (Authentication → Users).
-3. Pon `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` en `.env`.
+2. Ejecuta también los parches en `supabase/migrations/` (uno por módulo, fechados; son idempotentes).
+3. Activa Email Auth y crea un usuario (Authentication → Users).
+4. Pon `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` en `.env`.
 
 La guía completa de integración y despliegue está en **[`docs/INTEGRACION.md`](docs/INTEGRACION.md)**.
 
@@ -54,11 +61,17 @@ La guía completa de integración y despliegue está en **[`docs/INTEGRACION.md`
 ├── src/
 │   ├── main.jsx
 │   ├── index.css
-│   ├── App.jsx           # app completa (UI + TSP + análisis de ahorro)
+│   ├── App.jsx              # UI (pestañas, componentes) + análisis de ahorro
+│   ├── components/
+│   │   ├── LeafletMap.jsx   # mapa de un punto (alta/edición), lazy
+│   │   └── RouteMap.jsx     # mapa de una ruta completa (pines numerados + línea), lazy
 │   └── lib/
-│       └── supabase.js   # cliente + capa de datos (auth + CRUD)
+│       ├── supabase.js      # cliente + capa de datos (auth + CRUD)
+│       ├── routing.js       # TSP (con anclajes), matrices, métricas, ETA — sin React, testeable
+│       └── routing.test.js  # pruebas unitarias (Vitest)
 ├── supabase/
-│   └── schema.sql        # tablas + índices + políticas RLS
+│   ├── schema.sql           # tablas + índices + políticas RLS (fuente de verdad, instalación nueva)
+│   └── migrations/          # parches incrementales fechados, uno por módulo
 └── docs/
-    └── INTEGRACION.md    # guía paso a paso
+    └── INTEGRACION.md       # guía paso a paso
 ```

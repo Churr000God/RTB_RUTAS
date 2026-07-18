@@ -139,6 +139,7 @@ create table if not exists public.rutas_guardadas (
   closed      boolean not null default true,
   stops       jsonb not null,
   assigned_to uuid references auth.users(id),  -- chofer asignado (null = sin asignar)
+  hora_inicio time,                             -- hora de salida planeada (opcional)
   created_at  timestamptz not null default now()
 );
 

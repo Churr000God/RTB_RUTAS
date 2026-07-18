@@ -199,6 +199,9 @@ export async function removeRecorrido(id) {
 
 /* ----------------------- Rutas guardadas -------------------------- */
 // assigned_to: uuid del chofer asignado (null = sin asignar, cualquier driver la ve)
+// hora_inicio: hora planeada de salida ("HH:MM:SS" o null); viaja con la
+// ruta hasta el chofer para calcular su ETA. Columna opcional — si la
+// tabla aún no la tiene, insert/update fallarán al enviarla.
 const mapRutaG = (r) => ({
   id: r.id,
   nombre: r.nombre,
@@ -206,6 +209,7 @@ const mapRutaG = (r) => ({
   closed: r.closed,
   stops: r.stops,
   assignedTo: r.assigned_to ?? null,
+  horaInicio: r.hora_inicio ?? null,
 });
 
 export async function getRutasGuardadas() {
@@ -221,7 +225,7 @@ export async function getRutasGuardadas() {
 export async function addRutaGuardada(r) {
   const { data, error } = await supabase
     .from("rutas_guardadas")
-    .insert({ nombre: r.nombre, fecha: r.fecha || null, closed: r.closed, stops: r.stops, assigned_to: r.assignedTo ?? null })
+    .insert({ nombre: r.nombre, fecha: r.fecha || null, closed: r.closed, stops: r.stops, assigned_to: r.assignedTo ?? null, hora_inicio: r.horaInicio || null })
     .select()
     .single();
   if (error) throw error;
@@ -231,7 +235,7 @@ export async function addRutaGuardada(r) {
 export async function updateRutaGuardada(id, r) {
   const { data, error } = await supabase
     .from("rutas_guardadas")
-    .update({ nombre: r.nombre, fecha: r.fecha || null, closed: r.closed, stops: r.stops, assigned_to: r.assignedTo ?? null })
+    .update({ nombre: r.nombre, fecha: r.fecha || null, closed: r.closed, stops: r.stops, assigned_to: r.assignedTo ?? null, hora_inicio: r.horaInicio || null })
     .eq("id", id)
     .select()
     .single();

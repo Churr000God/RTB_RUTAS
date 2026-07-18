@@ -3,10 +3,11 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspens
 const SUPERADMIN_ID = "5ecb861d-7d41-4d01-a916-72eb1c2b1817";
 import {
   Truck, MapPin, Clock, Route, Plus, Trash2, Download, Upload, Zap,
-  ChevronRight, ChevronDown, AlertTriangle, Database, Map, GitCompare, X, Save,
+  ChevronRight, ChevronDown, AlertTriangle, Database, Map as MapIcon, GitCompare, X, Save,
   TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
   Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog,
-  UserCircle, KeyRound, UserPlus, Ban, Mail, ExternalLink, Copy
+  UserCircle, KeyRound, UserPlus, Ban, Mail, ExternalLink, Copy,
+  Lock, Unlock, ArrowUp, ArrowDown, GripVertical,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -22,9 +23,15 @@ import {
   getRutasGuardadas, addRutaGuardada, updateRutaGuardada, removeRutaGuardada,
   getAllRutasActivas, saveRutaActiva, clearRutaActiva, subscribeRutasActivas,
 } from "./lib/supabase";
+import {
+  mean, DOW, buildMatrices, buildWaits, solveTSP,
+  deriveObservations, analizarAhorro, metricsForOrder, computeETAs,
+  minToHHMM, parseHHMM,
+} from "./lib/routing";
 
 // Leaflet pesa lo suyo: se carga solo cuando se muestra un mapa (chunk aparte).
 const LeafletMap = lazy(() => import("./components/LeafletMap"));
+const RouteMap = lazy(() => import("./components/RouteMap"));
 const MapFallback = ({ className }) => (
   <div className={`flex items-center justify-center bg-slate-950/50 text-xs text-slate-500 ${className || ""}`}>
     Cargando mapa…
@@ -34,23 +41,6 @@ const MapFallback = ({ className }) => (
 /* ============================================================
    Utilidades
    ============================================================ */
-const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
-const median = (a) => {
-  if (!a.length) return null;
-  const s = [...a].sort((x, y) => x - y);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
-const DOW = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-const dowOf = (ts) => new Date(ts).getDay();
-const toRad = (d) => (d * Math.PI) / 180;
-function haversine(a, b) {
-  if (a?.lat == null || a?.lng == null || b?.lat == null || b?.lng == null) return null;
-  const R = 6371;
-  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
 function fmtMin(m) {
   if (m == null || !isFinite(m)) return "—";
   m = Math.round(m);
@@ -63,197 +53,6 @@ const fmtTime = (ts) => {
   if (!ts) return "—";
   return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 };
-
-/* ============================================================
-   El RECORRIDO es la fuente de verdad. De él se derivan tramos y esperas.
-   ============================================================ */
-function deriveObservations(recorridos) {
-  const segments = [], waits = [];
-  for (const R of recorridos) {
-    const ts = R.ts;
-    for (let i = 0; i < R.stops.length; i++) {
-      const st = R.stops[i];
-      if (st.waitMin != null && isFinite(st.waitMin)) waits.push({ point: st.point, min: +st.waitMin, ts });
-      if (i > 0 && st.legMin != null && isFinite(st.legMin)) {
-        segments.push({ from: R.stops[i - 1].point, to: st.point, min: +st.legMin, km: st.legKm != null && isFinite(st.legKm) ? +st.legKm : null, ts });
-      }
-    }
-  }
-  return { segments, waits };
-}
-
-function buildMatrices(points, segments, { weekday = null, stat = "median", speedKmh = 25, defaultMin = 20 } = {}) {
-  const n = points.length;
-  const timeM = Array.from({ length: n }, () => new Array(n).fill(null));
-  const distM = Array.from({ length: n }, () => new Array(n).fill(null));
-  const learned = Array.from({ length: n }, () => new Array(n).fill(false));
-  const counts = Array.from({ length: n }, () => new Array(n).fill(0));
-  const agg = (arr) => (stat === "mean" ? mean(arr) : median(arr));
-  const idIndex = Object.fromEntries(points.map((p, i) => [p.id, i]));
-
-  const bucket = {};
-  for (const s of segments) {
-    if (!(s.from in idIndex) || !(s.to in idIndex)) continue;
-    if (weekday != null && dowOf(s.ts) !== weekday) continue;
-    const key = s.from + "|" + s.to;
-    (bucket[key] ||= { t: [], d: [] }).t.push(s.min);
-    if (s.km != null) bucket[key].d.push(s.km);
-  }
-
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) { timeM[i][j] = 0; distM[i][j] = 0; continue; }
-      const b = bucket[points[i].id + "|" + points[j].id];
-      if (b && b.t.length) {
-        timeM[i][j] = agg(b.t);
-        learned[i][j] = true;
-        counts[i][j] = b.t.length;
-        distM[i][j] = b.d.length ? agg(b.d) : haversine(points[i], points[j]);
-      } else {
-        const hv = haversine(points[i], points[j]);
-        if (hv != null) { distM[i][j] = hv; timeM[i][j] = (hv / speedKmh) * 60; }
-        else { distM[i][j] = null; timeM[i][j] = defaultMin; }
-        learned[i][j] = false;
-      }
-    }
-  }
-  return { timeM, distM, learned, counts };
-}
-
-function buildWaits(points, waits) {
-  const w = {};
-  for (const p of points) w[p.id] = 0;
-  const b = {};
-  for (const x of waits) (b[x.point] ||= []).push(x.min);
-  for (const p of points) if (b[p.id]?.length) w[p.id] = mean(b[p.id]);
-  return w;
-}
-
-/* ============================================================
-   Solucionadores TSP (depósito fijo en índice 0)
-   ============================================================ */
-function tourCost(order, C, closed) {
-  let c = 0;
-  for (let i = 0; i < order.length - 1; i++) {
-    const v = C[order[i]][order[i + 1]];
-    if (v == null) return Infinity;
-    c += v;
-  }
-  if (closed) {
-    const v = C[order[order.length - 1]][order[0]];
-    if (v == null) return Infinity;
-    c += v;
-  }
-  return c;
-}
-function heldKarp(C, n, closed) {
-  const FULL = (1 << n) - 1;
-  const dp = Array.from({ length: 1 << n }, () => new Float64Array(n).fill(Infinity));
-  const par = Array.from({ length: 1 << n }, () => new Int16Array(n).fill(-1));
-  dp[1][0] = 0;
-  for (let mask = 1; mask <= FULL; mask++) {
-    if (!(mask & 1)) continue;
-    for (let i = 0; i < n; i++) {
-      if (!(mask & (1 << i)) || dp[mask][i] === Infinity) continue;
-      for (let j = 0; j < n; j++) {
-        if (mask & (1 << j)) continue;
-        const w = C[i][j]; if (w == null) continue;
-        const nm = mask | (1 << j), nc = dp[mask][i] + w;
-        if (nc < dp[nm][j]) { dp[nm][j] = nc; par[nm][j] = i; }
-      }
-    }
-  }
-  let best = Infinity, last = -1;
-  for (let i = 0; i < n; i++) {
-    const back = closed ? C[i][0] : 0; if (back == null) continue;
-    const c = dp[FULL][i] + back; if (c < best) { best = c; last = i; }
-  }
-  if (last === -1) return null;
-  const order = []; let mask = FULL, cur = last;
-  while (cur !== -1) { order.push(cur); const p = par[mask][cur]; mask ^= 1 << cur; cur = p; }
-  order.reverse();
-  return { order, cost: best };
-}
-function heuristicTSP(C, n, closed) {
-  const visited = new Array(n).fill(false); visited[0] = true;
-  let order = [0], cur = 0;
-  for (let k = 1; k < n; k++) {
-    let best = -1, bc = Infinity;
-    for (let j = 0; j < n; j++) { if (visited[j]) continue; const v = C[cur][j]; if (v != null && v < bc) { bc = v; best = j; } }
-    if (best === -1) for (let j = 0; j < n; j++) if (!visited[j]) { best = j; break; }
-    order.push(best); visited[best] = true; cur = best;
-  }
-  let best = order.slice(), bestCost = tourCost(best, C, closed), improved = true, guard = 0;
-  while (improved && guard++ < 3000) {
-    improved = false;
-    for (let i = 1; i < best.length - 1; i++)
-      for (let k = i + 1; k < best.length; k++) {
-        const cand = best.slice(0, i).concat(best.slice(i, k + 1).reverse(), best.slice(k + 1));
-        const cc = tourCost(cand, C, closed);
-        if (cc + 1e-9 < bestCost) { best = cand; bestCost = cc; improved = true; }
-      }
-    for (let i = 1; i < best.length; i++)
-      for (let j = 1; j < best.length; j++) {
-        if (i === j) continue;
-        const cand = best.slice(); const [node] = cand.splice(i, 1); cand.splice(j, 0, node);
-        if (cand[0] !== 0) continue;
-        const cc = tourCost(cand, C, closed);
-        if (cc + 1e-9 < bestCost) { best = cand; bestCost = cc; improved = true; }
-      }
-  }
-  return { order: best, cost: bestCost };
-}
-function solveTSP(C, n, closed) {
-  if (n <= 1) return { order: [0], cost: 0, exact: true };
-  if (n <= 12) { const r = heldKarp(C, n, closed); return r ? { ...r, exact: true } : null; }
-  return { ...heuristicTSP(C, n, closed), exact: false };
-}
-
-/* ============================================================
-   Análisis de ahorro: orden real vs orden óptimo, misma matriz.
-   ============================================================ */
-function analizarAhorro(points, recorridos, { leaveOneOut = true } = {}) {
-  const out = [];
-  for (const R of recorridos) {
-    let ids = R.stops.map((s) => s.point);
-    let closed = false;
-    if (ids.length > 2 && ids[ids.length - 1] === ids[0]) { closed = true; ids = ids.slice(0, -1); }
-    if (new Set(ids).size !== ids.length) continue;
-    if (ids.length < 3) continue;
-    const subPts = ids.map((id) => points.find((p) => p.id === id));
-    if (subPts.some((p) => !p)) continue;
-
-    const source = leaveOneOut ? recorridos.filter((x) => x.id !== R.id) : recorridos;
-    const { segments } = deriveObservations(source);
-    const { timeM, learned } = buildMatrices(subPts, segments, { stat: "median" });
-    const n = subPts.length;
-
-    const realOrder = subPts.map((_, i) => i);
-    const realOnMatrix = tourCost(realOrder, timeM, closed);
-    const realMeasured = R.stops.reduce((s, st) => s + (st.legMin != null && isFinite(st.legMin) ? +st.legMin : 0), 0);
-    const totalWait = R.stops.reduce((s, st) => s + (st.waitMin != null && isFinite(st.waitMin) ? +st.waitMin : 0), 0);
-    const totalBreak = R.stops.reduce((s, st) => s + (st.legBreakMin || 0) + (st.waitBreakMin || 0), 0);
-    const opt = solveTSP(timeM, n, closed);
-    if (!opt) continue;
-    const gap = realOnMatrix - opt.cost;
-
-    let estimado = false;
-    for (let s = 1; s < opt.order.length; s++) if (!learned[opt.order[s - 1]][opt.order[s]]) estimado = true;
-    if (closed && !learned[opt.order[opt.order.length - 1]][opt.order[0]]) estimado = true;
-
-    out.push({
-      id: R.id, date: R.dateISO, ts: R.ts, n, closed,
-      realMeasured, totalWait, totalBreak, realOnMatrix, optCost: opt.cost, gap,
-      gapPct: realOnMatrix > 0 ? (gap / realOnMatrix) * 100 : 0,
-      realNames: subPts.map((p) => p.name),
-      optNames: opt.order.map((k) => subPts[k].name),
-      sameOrder: realOrder.every((v, i) => v === opt.order[i]),
-      estimado,
-    });
-  }
-  out.sort((a, b) => a.ts - b.ts);
-  return out;
-}
 
 /* ============================================================
    UI base
@@ -626,11 +425,11 @@ export default function OptimizadorRutas() {
   const allTabs = [
     { id: "ruta-dia",   label: "Ruta del día",        icon: Navigation,  roles: ["admin","supervisor","driver"] },
     { id: "monitor",    label: "Monitor",              icon: Radio,       roles: ["admin","supervisor"] },
-    { id: "optimizar",  label: "Optimizar",            icon: Zap,         roles: ["admin","supervisor"] },
+    { id: "optimizar",  label: "Generación y carga de rutas", icon: Zap,  roles: ["admin","supervisor"] },
     { id: "registrar",  label: "Registrar recorrido",  icon: Clock,       roles: ["admin","supervisor"] },
     { id: "ahorro",     label: "Análisis de ahorro",   icon: TrendingDown,roles: ["admin","supervisor"] },
     { id: "puntos",     label: "Puntos",               icon: MapPin,      roles: ["admin","supervisor"] },
-    { id: "matriz",     label: "Matriz aprendida",     icon: Map,         roles: ["admin","supervisor"] },
+    { id: "matriz",     label: "Matriz aprendida",     icon: MapIcon,     roles: ["admin","supervisor"] },
     { id: "datos",      label: "Datos",                icon: Database,    roles: ["admin"] },
     { id: "usuarios",   label: "Usuarios",             icon: UserCog,     roles: ["admin"] },
     { id: "micuenta",   label: "Mi cuenta",            icon: UserCircle,  roles: ["admin","supervisor","driver"] },
@@ -697,7 +496,7 @@ export default function OptimizadorRutas() {
         {tab === "registrar" && <RegistrarTab points={points} onAddRecorrido={onAddRecorrido} />}
         {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
-        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} onLoadRutaDia={onLoadRutaDia} onSaveRutaGuardada={onSaveRutaGuardada} profiles={profiles} />}
+        {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onSaveRutaGuardada={onSaveRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} profiles={profiles} />}
         {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profiles={profiles} />}
         {tab === "monitor"   && <MonitorTab activeRoutes={activeRoutes} profiles={profiles} onLiberar={onLiberarRuta} />}
         {tab === "datos"     && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
@@ -1665,48 +1464,147 @@ function MatrizTab({ points, segments }) {
 }
 
 /* ============================================================
-   Tab: Optimizar
+   Tab: Generación y carga de rutas (antes "Optimizar")
+
+   Calcula la ruta óptima (tiempo o distancia), permite reordenarla a
+   mano y anclar paradas, la muestra en un mapa con ETA por parada, y
+   la asigna a un chofer (obligatorio) — el chofer la inicia desde su
+   Ruta del día.
    ============================================================ */
-function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuardada, profiles = [] }) {
+function OptimizarTab({ points, segments, waits, rutasGuardadas = [], onSaveRutaGuardada, onUpdateRutaGuardada, onDeleteRutaGuardada, profiles = [] }) {
   const [selected, setSelected] = useState(() => new Set());
   const [startId, setStartId] = useState("");
   const [closed, setClosed] = useState(true);
   const [weekday, setWeekday] = useState("");
-  const [result, setResult] = useState(null);
   const [pointSearch, setPointSearch] = useState("");
   const [comidaMin, setComidaMin] = useState("");
+  const [error, setError] = useState("");
+  // Ruta guardada que se está reeditando (§ "Rutas guardadas" abajo), si la hay.
+  const [editingId, setEditingId] = useState(null);
+
+  // Contexto de la última resolución: matrices + ambos órdenes óptimos
+  // (tiempo y distancia), para poder cambiar de criterio o comparar sin
+  // volver a resolver el TSP.
+  const [session, setSession] = useState(null);
+  const [criterio, setCriterio] = useState("time"); // "time" | "dist"
+  // Orden editable a mano (índices dentro de session.sub); [0] = inicio.
+  const [manualOrder, setManualOrder] = useState(null);
+  // Anclajes: índice de nodo (en session.sub) -> posición fija (1..n-1).
+  const [anchors, setAnchors] = useState(() => new Map());
+  const [horaInicio, setHoraInicio] = useState(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  });
 
   useEffect(() => { if (!startId && points.length) { const dep = points.find((p) => p.type === "deposito"); setStartId(dep ? dep.id : points[0].id); } }, [points, startId]);
   const toggle = (id) => { const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n); };
 
-  const compute = () => {
+  const resolveOptimal = () => {
+    setError("");
+    // Nota: recalcular NO limpia editingId — si estabas editando una ruta
+    // guardada (p. ej. le agregaste una parada), sigues editando la misma;
+    // "Actualizar esta ruta guardada" debe seguir apuntando a ella.
     const ids = [startId, ...[...selected].filter((id) => id !== startId)];
     const sub = ids.map((id) => points.find((p) => p.id === id)).filter(Boolean);
-    if (sub.length < 2) { setResult({ error: "Selecciona al menos un destino además del inicio." }); return; }
+    if (sub.length < 2) { setError("Selecciona al menos un destino además del inicio."); setSession(null); setManualOrder(null); return; }
     const wd = weekday === "" ? null : +weekday;
     const { timeM, distM, learned } = buildMatrices(sub, segments, { weekday: wd });
     const W = buildWaits(sub, waits);
     const n = sub.length;
-    const routeForMetric = (M) => {
-      let missing = false;
-      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j && M[i][j] == null) missing = true;
-      if (missing) return { unavailable: true };
-      const r = solveTSP(M, n, closed); if (!r) return { unavailable: true };
-      let totT = 0, totD = 0, totW = 0, anyEst = false; const legs = []; const o = r.order;
-      for (let s = 0; s < o.length; s++) {
-        const k = o[s];
-        if (s > 0) { const a = o[s - 1]; totT += timeM[a][k] ?? 0; totD += distM[a][k] ?? 0; if (!learned[a][k]) anyEst = true; legs.push({ min: timeM[a][k], km: distM[a][k], learned: learned[a][k] }); }
-        if (s > 0) totW += W[sub[k].id] ?? 0;
-      }
-      if (closed) { const a = o[o.length - 1], k = o[0]; totT += timeM[a][k] ?? 0; totD += distM[a][k] ?? 0; if (!learned[a][k]) anyEst = true; legs.push({ min: timeM[a][k], km: distM[a][k], learned: learned[a][k], ret: true }); }
-      return { seqNames: o.map((k) => sub[k].name), seqIds: o.map((k) => sub[k].id), legs, totT, totD, totW, exact: r.exact, anyEst };
-    };
-    setResult({ byTime: routeForMetric(timeM), byDist: routeForMetric(distM), n });
+
+    const missing = (M) => { for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j && M[i][j] == null) return true; return false; };
+    if (missing(timeM)) { setError("Faltan datos de tiempo en algunos tramos."); setSession(null); setManualOrder(null); return; }
+    const distUnavailable = missing(distM);
+
+    const optTime = solveTSP(timeM, n, closed, anchors);
+    if (!optTime) { setError("No se pudo resolver la ruta: revisa los anclajes (pueden estar en conflicto entre sí)."); setSession(null); setManualOrder(null); return; }
+    const optDist = distUnavailable ? null : solveTSP(distM, n, closed, anchors);
+
+    const ctx = { sub, timeM, distM, learned, W, closed, n };
+    setSession({ ...ctx, optOrderTime: optTime.order, optExactTime: optTime.exact, optOrderDist: optDist?.order ?? null, distUnavailable });
+    setManualOrder(criterio === "dist" && optDist ? optDist.order : optTime.order);
   };
+
+  // Vuelve a cargar una ruta guardada (plantilla o asignada) en el
+  // planificador, preservando su orden EXACTO (no el óptimo) para poder
+  // seguir editándola, reasignarla o actualizarla.
+  const loadTemplate = (r) => {
+    if (!r.stops || r.stops.length < 2) return;
+    setError("");
+    const sub = r.stops.map((s) => points.find((p) => p.id === s.id)).filter(Boolean);
+    if (sub.length !== r.stops.length) { setError("Algunas paradas de esta ruta ya no existen en el catálogo de puntos."); return; }
+    const wd = weekday === "" ? null : +weekday;
+    const { timeM, distM, learned } = buildMatrices(sub, segments, { weekday: wd });
+    const W = buildWaits(sub, waits);
+    const n = sub.length;
+    const missing = (M) => { for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j && M[i][j] == null) return true; return false; };
+    if (missing(timeM)) { setError("Faltan datos de tiempo en algunos tramos de esta ruta guardada."); return; }
+    const distUnavailable = missing(distM);
+    const optTime = solveTSP(timeM, n, r.closed);
+    const optDist = distUnavailable ? null : solveTSP(distM, n, r.closed);
+
+    setStartId(sub[0].id);
+    setSelected(new Set(sub.slice(1).map((p) => p.id)));
+    setClosed(r.closed);
+    setAnchors(new Map());
+    if (r.horaInicio) setHoraInicio(r.horaInicio.slice(0, 5));
+    setEditingId(r.id);
+
+    const ctx = { sub, timeM, distM, learned, W, closed: r.closed, n };
+    setSession({ ...ctx, optOrderTime: optTime?.order ?? null, optExactTime: optTime?.exact ?? false, optOrderDist: optDist?.order ?? null, distUnavailable });
+    setManualOrder(sub.map((_, i) => i)); // el orden tal cual se guardó, no el óptimo
+  };
+
+  const changeCriterio = (next) => {
+    setCriterio(next);
+    if (!session) return;
+    const order = next === "dist" ? session.optOrderDist : session.optOrderTime;
+    if (order) setManualOrder(order);
+  };
+
+  const reorder = (fromPos, toPos) => {
+    if (!manualOrder || fromPos === 0 || toPos === 0 || fromPos === toPos) return;
+    const next = manualOrder.slice();
+    const [node] = next.splice(fromPos, 1);
+    next.splice(toPos, 0, node);
+    setManualOrder(next);
+    if (anchors.has(node)) { const a = new Map(anchors); a.delete(node); setAnchors(a); } // el arrastre manda sobre el anclaje
+  };
+  const move = (pos, dir) => { const to = pos + dir; if (to >= 1 && to <= manualOrder.length - 1) reorder(pos, to); };
+
+  const setAnchor = (nodeIdx, pos) => {
+    const a = new Map(anchors);
+    if (pos != null) for (const [k, v] of a) if (v === pos && k !== nodeIdx) a.delete(k); // libera a quien tuviera esa posición
+    if (pos == null) a.delete(nodeIdx); else a.set(nodeIdx, pos);
+    setAnchors(a);
+  };
+
+  const curStats = useMemo(() => (session && manualOrder ? metricsForOrder(manualOrder, session) : null), [session, manualOrder]);
+  const optOrderForCriterio = session ? (criterio === "dist" ? session.optOrderDist : session.optOrderTime) : null;
+  const optStats = useMemo(() => (session && optOrderForCriterio ? metricsForOrder(optOrderForCriterio, session) : null), [session, optOrderForCriterio]);
+  const isManualOptimal = !!(optOrderForCriterio && manualOrder && JSON.stringify(optOrderForCriterio) === JSON.stringify(manualOrder));
+  const primaryVal = (s) => (criterio === "dist" ? s.totD : s.totT);
+  const deltaAbs = curStats && optStats ? primaryVal(curStats) - primaryVal(optStats) : 0;
+  const deltaPct = curStats && optStats && primaryVal(optStats) > 0 ? (deltaAbs / primaryVal(optStats)) * 100 : 0;
+  const criteriaDiffer = !!(session?.optOrderTime && session?.optOrderDist && JSON.stringify(session.optOrderTime) !== JSON.stringify(session.optOrderDist));
+
+  const etaInfo = useMemo(() => {
+    if (!session || !manualOrder) return null;
+    const startMin = parseHHMM(horaInicio);
+    if (startMin == null) return null;
+    return computeETAs(manualOrder, session, startMin, +comidaMin || 0);
+  }, [session, manualOrder, horaInicio, comidaMin]);
+
+  const mapStops = useMemo(() => {
+    if (!session || !manualOrder) return [];
+    return manualOrder.map((k) => session.sub[k]).map((p) => ({ id: p.id, name: p.name, lat: p.lat ?? null, lng: p.lng ?? null }));
+  }, [session, manualOrder]);
+  const missingCoordsCount = mapStops.filter((s) => s.lat == null || s.lng == null).length;
 
   if (points.length < 2) return <Card className="p-6"><Empty>Agrega puntos y registra recorridos primero.</Empty></Card>;
   return (
     <div className="space-y-4">
+      <h2 className="text-lg font-bold text-slate-100">Generación y carga de rutas</h2>
       <Card className="p-4">
         <div className="grid gap-4 md:grid-cols-[1.3fr_1fr]">
           <div>
@@ -1758,151 +1656,365 @@ function OptimizarTab({ points, segments, waits, onLoadRutaDia, onSaveRutaGuarda
               <input className={inputCls} type="number" min="0" value={comidaMin}
                 onChange={(e) => setComidaMin(e.target.value)} placeholder="60" />
             </Field>
-            <Btn onClick={compute} className="w-full justify-center"><Zap size={16} /> Calcular mejor ruta</Btn>
+            <Btn onClick={resolveOptimal} className="w-full justify-center">
+              <Zap size={16} /> {session ? "Recalcular ruta óptima" : "Calcular mejor ruta"}
+            </Btn>
           </div>
         </div>
       </Card>
-      {result?.error && <Card className="border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-300"><AlertTriangle size={16} className="mb-1 inline" /> {result.error}</Card>}
-      {result && !result.error && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <RouteCard title="Óptima por tiempo" accent="amber" data={result.byTime} primary="time" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} profiles={profiles} />
-          <RouteCard title="Óptima por distancia" accent="sky" data={result.byDist} primary="dist" closed={closed} onLoadRuta={onLoadRutaDia} comidaMin={+comidaMin || 0} onSaveRuta={onSaveRutaGuardada} profiles={profiles} />
-          {result.byTime?.seqNames && result.byDist?.seqNames && (
-            <div className="md:col-span-2">
-              <Card className="flex items-center gap-3 p-3 text-xs text-slate-400">
-                <GitCompare size={16} className="text-slate-500" />
-                {JSON.stringify(result.byTime.seqNames) === JSON.stringify(result.byDist.seqNames)
-                  ? <span>Ambos criterios coinciden: la ruta más rápida también es la más corta.</span>
-                  : <span>Las rutas difieren. La más rápida ahorra tiempo; la más corta ahorra kilómetros. Elige según tu prioridad.</span>}
-                {result.byTime.exact ? <span className="ml-auto rounded bg-slate-800 px-2 py-0.5 text-teal-400">Óptima exacta</span> : <span className="ml-auto rounded bg-slate-800 px-2 py-0.5">Heurística ({result.n} puntos)</span>}
-              </Card>
-            </div>
-          )}
+      {error && <Card className="border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-300"><AlertTriangle size={16} className="mb-1 inline" /> {error}</Card>}
+      {session && curStats && (
+        <RoutePlanner
+          session={session} manualOrder={manualOrder} criterio={criterio} onCriterio={changeCriterio}
+          curStats={curStats} optStats={optStats} isManualOptimal={isManualOptimal}
+          deltaAbs={deltaAbs} deltaPct={deltaPct} criteriaDiffer={criteriaDiffer}
+          closed={closed} comidaMin={+comidaMin || 0}
+          anchors={anchors} setAnchor={setAnchor}
+          reorder={reorder} move={move}
+          horaInicio={horaInicio} setHoraInicio={setHoraInicio} etaInfo={etaInfo}
+          mapStops={mapStops} missingCoordsCount={missingCoordsCount}
+          onRestoreOptimal={() => optOrderForCriterio && setManualOrder(optOrderForCriterio)}
+          onSaveRuta={onSaveRutaGuardada}
+          rutasGuardadas={rutasGuardadas}
+          profiles={profiles}
+          editingId={editingId}
+          onUpdateRuta={onUpdateRutaGuardada}
+          onDoneEditing={() => setEditingId(null)}
+        />
+      )}
+      <SavedRoutesCard
+        rutasGuardadas={rutasGuardadas}
+        profiles={profiles}
+        editingId={editingId}
+        onEdit={loadTemplate}
+        onDelete={onDeleteRutaGuardada}
+      />
+    </div>
+  );
+}
+
+/** Lista de rutas guardadas (plantillas y asignadas) creadas desde este
+ *  módulo: permite volver a cargarlas en el planificador para seguir
+ *  editándolas, reasignarlas, o eliminarlas. */
+function SavedRoutesCard({ rutasGuardadas, profiles, editingId, onEdit, onDelete }) {
+  if (!rutasGuardadas.length) return null;
+  return (
+    <Card className="p-4">
+      <h3 className="mb-3 text-sm font-semibold text-slate-200">Rutas guardadas</h3>
+      <ul className="divide-y divide-slate-800">
+        {rutasGuardadas.map((r) => {
+          const chofer = r.assignedTo ? profiles.find((p) => p.userId === r.assignedTo)?.nombre ?? "Chofer asignado" : null;
+          return (
+            <li key={r.id} className={`flex flex-wrap items-center gap-3 py-2.5 ${editingId === r.id ? "bg-amber-500/5" : ""}`}>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-200">{r.nombre}</div>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                  {r.fecha && <span className="flex items-center gap-1"><Calendar size={11} /> {r.fecha}</span>}
+                  <span>{r.stops.length} paradas</span>
+                  <span>{r.closed ? "Cerrada" : "Abierta"}</span>
+                  {chofer ? <span className="flex items-center gap-1 text-amber-600"><Users size={10} /> {chofer}</span> : <span className="text-slate-700">Sin asignar</span>}
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Btn variant="ghost" onClick={() => onEdit(r)} className="py-1 px-2.5 text-xs">
+                  <Pencil size={13} /> Editar
+                </Btn>
+                <Btn
+                  variant="ghost"
+                  onClick={() => { if (confirm(`¿Eliminar "${r.nombre}"?`)) onDelete(r.id); }}
+                  className="py-1 px-2 text-rose-400 hover:text-rose-300"
+                >
+                  <Trash2 size={13} />
+                </Btn>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
+/** Menú de anclaje por parada (libre / primera / última / esta posición). */
+function AnchorMenu({ anchored, onFree, onFirst, onLast, onHere }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} title="Anclar parada"
+        className={`shrink-0 ${anchored ? "text-amber-400" : "text-slate-500 hover:text-slate-300"}`}>
+        {anchored ? <Lock size={13} /> : <Unlock size={13} />}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-6 z-10 w-44 rounded-lg border border-slate-700 bg-slate-900 p-1 text-xs shadow-lg">
+          <button onClick={() => { onFree(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Libre</button>
+          <button onClick={() => { onFirst(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Primera tras el inicio</button>
+          <button onClick={() => { onLast(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Última antes de regresar</button>
+          <button onClick={() => { onHere(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Fijar en esta posición</button>
         </div>
       )}
     </div>
   );
 }
-function RouteCard({ title, accent, data, primary, closed, onLoadRuta, comidaMin = 0, onSaveRuta, profiles = [] }) {
-  const accentCls = accent === "amber" ? "text-amber-400" : "text-sky-400";
-  const _hoy = new Date();
-  const localToday = `${_hoy.getFullYear()}-${String(_hoy.getMonth()+1).padStart(2,"0")}-${String(_hoy.getDate()).padStart(2,"0")}`;
-  const [showSaveForm, setShowSaveForm] = useState(false);
-  const [saveNombre, setSaveNombre] = useState("");
-  const [saveFecha, setSaveFecha] = useState(localToday);
-  const [saveAssignedTo, setSaveAssignedTo] = useState("");
-  const [savingRuta, setSavingRuta] = useState(false);
-  if (!data) return null;
-  if (data.unavailable) return (
-    <Card className="p-4">
-      <h3 className={`mb-2 text-sm font-semibold ${accentCls}`}>{title}</h3>
-      <p className="text-xs text-slate-500">{primary === "dist" ? "Faltan datos de distancia (km) en algunos tramos. Captura kilómetros o agrega coordenadas a los puntos." : "Faltan datos de tiempo en algunos tramos."}</p>
-    </Card>
+
+/** Ruta editable: selector de criterio, lista reordenable con anclajes y
+ *  ETA, mapa, y acción de asignar a chofer. */
+function RoutePlanner({
+  session, manualOrder, criterio, onCriterio,
+  curStats, optStats, isManualOptimal, deltaAbs, deltaPct, criteriaDiffer,
+  closed, comidaMin,
+  anchors, setAnchor,
+  reorder, move,
+  horaInicio, setHoraInicio, etaInfo,
+  mapStops, missingCoordsCount,
+  onRestoreOptimal,
+  onSaveRuta, rutasGuardadas, profiles,
+  editingId, onUpdateRuta, onDoneEditing,
+}) {
+  const [dragIdx, setDragIdx] = useState(null);
+  const etaByNode = useMemo(() => {
+    const m = {};
+    etaInfo?.etas.forEach((e) => { m[e.id] = e; });
+    return m;
+  }, [etaInfo]);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-1">
+          <button onClick={() => onCriterio("time")} className={`rounded-lg border px-3 py-1.5 text-xs ${criterio === "time" ? "border-amber-500 bg-amber-500/10 text-amber-300" : "border-slate-700 text-slate-400"}`}>Por tiempo</button>
+          <button onClick={() => onCriterio("dist")} disabled={session.distUnavailable} className={`rounded-lg border px-3 py-1.5 text-xs disabled:opacity-30 ${criterio === "dist" ? "border-sky-500 bg-sky-500/10 text-sky-300" : "border-slate-700 text-slate-400"}`}>Por distancia</button>
+          {session.distUnavailable && <span className="text-[10px] text-slate-600">faltan coordenadas/km para distancia</span>}
+          <span className="ml-auto rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">
+            {session.optExactTime ? "Óptima exacta" : `Heurística (${session.n} puntos)`}
+          </span>
+        </div>
+
+        {criteriaDiffer && (
+          <p className="mb-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+            <GitCompare size={14} className="shrink-0 text-slate-500" />
+            {criterio === "time" ? "Si priorizaras distancia, el orden óptimo sería otro." : "Si priorizaras tiempo, el orden óptimo sería otro."}
+          </p>
+        )}
+
+        <div className={`mb-3 grid gap-2 text-center ${comidaMin > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
+          <Stat label="Manejo" value={fmtMin(curStats.totT)} highlight={criterio === "time"} />
+          <Stat label="Esperas" value={fmtMin(curStats.totW)} />
+          {comidaMin > 0 && <Stat label="Comida" value={fmtMin(comidaMin)} color="text-orange-300" />}
+          <Stat label="Total día" value={fmtMin(curStats.totT + curStats.totW + comidaMin)} highlight />
+        </div>
+        <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-xs text-slate-500">
+          <span>Distancia: <span className={`font-mono ${criterio === "dist" ? "text-sky-300" : "text-slate-300"}`}>{fmtKm(curStats.totD)}</span></span>
+          {etaInfo && <span>Regreso: <span className="font-mono text-slate-300">{minToHHMM(etaInfo.horaRegresoMin)}{etaInfo.approxReturn ? " ≈" : ""}</span></span>}
+        </div>
+
+        {!isManualOptimal && optStats && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-700/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+            <span>{deltaAbs >= 0 ? "+" : ""}{fmtMin(deltaAbs)} · {deltaAbs >= 0 ? "+" : ""}{deltaPct.toFixed(0)}% que el óptimo</span>
+            <button onClick={onRestoreOptimal} className="shrink-0 underline hover:text-amber-200">Restaurar orden óptimo</button>
+          </div>
+        )}
+        {isManualOptimal && <p className="mb-3 text-center text-xs text-teal-400">Orden óptimo</p>}
+        {curStats.anyEst && <p className="mb-3 text-center text-[10px] text-rose-300">incluye tramos estimados</p>}
+
+        <Field label="Hora de inicio">
+          <input type="time" className={inputCls + " w-auto"} value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
+        </Field>
+
+        <ol className="mt-3 space-y-1">
+          {manualOrder.map((node, i) => {
+            const p = session.sub[node];
+            const leg = curStats.legs[i - 1];
+            const eta = etaByNode[p.id];
+            const isStart = i === 0;
+            return (
+              <li key={p.id}
+                draggable={!isStart}
+                onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); setDragIdx(i); }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); if (dragIdx != null) reorder(dragIdx, i); setDragIdx(null); }}
+                className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-sm ${isStart ? "border-amber-500/40 bg-amber-500/5" : "border-slate-800 bg-slate-950/40"}`}
+              >
+                {!isStart && <GripVertical size={13} className="shrink-0 cursor-grab text-slate-600" />}
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-slate-300">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-slate-200">{p.name}{isStart && <span className="ml-1 text-[10px] text-amber-400/80">Inicio</span>}</span>
+                {leg && <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500"><ChevronRight size={11} /><span className={`font-mono ${leg.learned ? "text-teal-400" : "text-rose-400"}`}>{fmtMin(leg.min)}</span></span>}
+                {eta && <span className="shrink-0 font-mono text-[11px] text-slate-400">{minToHHMM(eta.etaMin)}{eta.approx ? "≈" : ""}</span>}
+                {!isStart && (
+                  <>
+                    <button onClick={() => move(i, -1)} disabled={i <= 1} className="shrink-0 text-slate-500 hover:text-slate-300 disabled:opacity-20"><ArrowUp size={13} /></button>
+                    <button onClick={() => move(i, 1)} disabled={i >= manualOrder.length - 1} className="shrink-0 text-slate-500 hover:text-slate-300 disabled:opacity-20"><ArrowDown size={13} /></button>
+                    <AnchorMenu
+                      anchored={anchors.has(node)}
+                      onFree={() => setAnchor(node, null)}
+                      onFirst={() => setAnchor(node, 1)}
+                      onLast={() => setAnchor(node, session.n - 1)}
+                      onHere={() => setAnchor(node, i)}
+                    />
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+        {closed && curStats.legs.some((l) => l.ret) && (
+          <div className="mt-1 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-2 py-1.5 text-xs text-slate-500">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px]">↩</span>
+            <span>Regreso al inicio</span>
+            <span className="ml-auto font-mono">{fmtMin(curStats.legs[curStats.legs.length - 1].min)}</span>
+          </div>
+        )}
+
+        {missingCoordsCount > 0 && (
+          <p className="mt-2 text-[11px] text-slate-500">{missingCoordsCount} parada(s) sin coordenadas no se muestran en el mapa.</p>
+        )}
+        <Suspense fallback={<MapFallback className="mt-3 h-64 w-full rounded-lg" />}>
+          <RouteMap className="mt-3 h-64 w-full overflow-hidden rounded-lg" stops={mapStops} closed={closed} />
+        </Suspense>
+      </Card>
+
+      <AssignCard
+        manualOrder={manualOrder} session={session} closed={closed} horaInicio={horaInicio}
+        onSaveRuta={onSaveRuta} rutasGuardadas={rutasGuardadas} profiles={profiles}
+        editingId={editingId} onUpdateRuta={onUpdateRuta} onDoneEditing={onDoneEditing}
+      />
+    </div>
   );
+}
+
+/** Acción principal del módulo: asignar la ruta final a un chofer
+ *  (obligatorio), con aviso si ya tiene una ruta esa fecha; o guardarla
+ *  como plantilla sin asignar (acción secundaria). */
+function AssignCard({ manualOrder, session, closed, horaInicio, onSaveRuta, rutasGuardadas, profiles, editingId, onUpdateRuta, onDoneEditing }) {
+  const _hoy = new Date();
+  const localToday = `${_hoy.getFullYear()}-${String(_hoy.getMonth() + 1).padStart(2, "0")}-${String(_hoy.getDate()).padStart(2, "0")}`;
+  const [nombre, setNombre] = useState("");
+  const [fecha, setFecha] = useState(localToday);
+  const [assignedTo, setAssignedTo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [confirmConflict, setConfirmConflict] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  const editingRoute = editingId ? rutasGuardadas.find((r) => r.id === editingId) : null;
+  // Al cargar una ruta guardada para editar, precargar su nombre/fecha/chofer.
+  useEffect(() => {
+    if (editingRoute) {
+      setNombre(editingRoute.nombre);
+      setFecha(editingRoute.fecha || localToday);
+      setAssignedTo(editingRoute.assignedTo || "");
+      setConfirmConflict(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
+
+  const stopsPayload = () => manualOrder.map((k) => ({ id: session.sub[k].id, name: session.sub[k].name }));
+
+  const conflict = useMemo(() => {
+    if (!assignedTo || !fecha) return null;
+    return rutasGuardadas.find((r) => r.assignedTo === assignedTo && r.fecha === fecha && r.id !== editingId) || null;
+  }, [assignedTo, fecha, rutasGuardadas, editingId]);
+
+  const friendlyError = (e) => {
+    const msg = e?.message || String(e);
+    if (/hora_inicio/i.test(msg) || /column .* does not exist/i.test(msg)) {
+      return "Falta la columna hora_inicio en la base de datos. Corre la migración supabase/migrations/2026-07-generacion-rutas.sql en el SQL Editor de Supabase y vuelve a intentar.";
+    }
+    return `No se pudo guardar: ${msg}`;
+  };
+
+  const doSave = async (assignedToVal) => {
+    setSaving(true); setSaveError("");
+    try {
+      await onSaveRuta({
+        nombre: nombre.trim(),
+        fecha: fecha || null,
+        closed,
+        stops: stopsPayload(),
+        assignedTo: assignedToVal,
+        horaInicio: assignedToVal ? horaInicio : null,
+      });
+      setNombre(""); setAssignedTo(""); setConfirmConflict(false);
+    } catch (e) { console.error(e); setSaveError(friendlyError(e)); }
+    finally { setSaving(false); }
+  };
+
+  const doUpdate = async () => {
+    setSaving(true); setSaveError("");
+    try {
+      await onUpdateRuta(editingId, {
+        nombre: nombre.trim(),
+        fecha: fecha || null,
+        closed,
+        stops: stopsPayload(),
+        assignedTo: assignedTo || null,
+        horaInicio: assignedTo ? horaInicio : null,
+      });
+      onDoneEditing();
+      setNombre(""); setAssignedTo(""); setConfirmConflict(false);
+    } catch (e) { console.error(e); setSaveError(friendlyError(e)); }
+    finally { setSaving(false); }
+  };
+
+  const handleAssign = () => {
+    if (!assignedTo || !nombre.trim()) return;
+    if (conflict && !confirmConflict) { setConfirmConflict(true); return; }
+    doSave(assignedTo);
+  };
+
+  const handleUpdate = () => {
+    if (!nombre.trim()) return;
+    if (assignedTo && conflict && !confirmConflict) { setConfirmConflict(true); return; }
+    doUpdate();
+  };
+
   return (
     <Card className="p-4">
-      <div className="mb-3 flex items-baseline justify-between">
-        <h3 className={`text-sm font-semibold ${accentCls}`}>{title}</h3>
-        {data.anyEst && <span className="rounded bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-300">incluye tramos estimados</span>}
-      </div>
-      <div className={`mb-3 grid gap-2 text-center ${comidaMin > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
-        <Stat label="Manejo" value={fmtMin(data.totT)} highlight={primary === "time"} />
-        <Stat label="Esperas" value={fmtMin(data.totW)} />
-        {comidaMin > 0 && <Stat label="Comida" value={fmtMin(comidaMin)} color="text-orange-300" />}
-        <Stat label="Total día" value={fmtMin(data.totT + data.totW + comidaMin)} highlight />
-      </div>
-      <div className="mb-3 text-center"><span className="text-xs text-slate-500">Distancia: </span><span className={`font-mono text-sm ${primary === "dist" ? "text-sky-300" : "text-slate-300"}`}>{fmtKm(data.totD)}</span></div>
-      <ol className="mb-3 space-y-1">
-        {data.seqNames.map((name, i) => (
-          <li key={i} className="flex items-center gap-2 text-sm">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-slate-300">{i + 1}</span>
-            <span className="text-slate-200">{name}</span>
-            {data.legs[i] && <span className="ml-auto flex items-center gap-1 text-[11px] text-slate-500"><ChevronRight size={12} /><span className={`font-mono ${data.legs[i].learned ? "text-teal-400" : "text-rose-400"}`}>{fmtMin(data.legs[i].min)}</span></span>}
-          </li>
-        ))}
-        {data.legs.some((l) => l.ret) && (
-          <li className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px]">↩</span><span>Regreso al inicio</span>
-            <span className="ml-auto font-mono">{fmtMin(data.legs[data.legs.length - 1].min)}</span>
-          </li>
+      <h3 className="mb-3 text-sm font-semibold text-slate-200">
+        {editingRoute ? `Editando "${editingRoute.nombre}"` : "Asignar a chofer"}
+      </h3>
+      <div className="space-y-2">
+        <Field label="Nombre de la ruta">
+          <input className={inputCls} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Ruta lunes centro" />
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Fecha">
+            <input className={inputCls} type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          </Field>
+          <Field label="Chofer (obligatorio para asignar)">
+            <select className={inputCls} value={assignedTo} onChange={(e) => { setAssignedTo(e.target.value); setConfirmConflict(false); }}>
+              <option value="">— Selecciona un chofer —</option>
+              {profiles.map((p) => <option key={p.userId} value={p.userId}>{p.nombre} ({p.role})</option>)}
+            </select>
+          </Field>
+        </div>
+        {conflict && (
+          <p className="rounded-lg border border-rose-800/50 bg-rose-950/20 px-3 py-2 text-xs text-rose-300">
+            <AlertTriangle size={13} className="mr-1 inline" />
+            Este chofer ya tiene la ruta "{conflict.nombre}" asignada el {fecha}.
+            {!confirmConflict && " Presiona \"Asignar a chofer\" otra vez para confirmar."}
+          </p>
         )}
-      </ol>
-      {onLoadRuta && data.seqIds && (
-        <Btn variant="ghost" onClick={() => onLoadRuta({
-          title,
-          stops: data.seqIds.map((id, i) => ({ id, name: data.seqNames[i] })),
-          closed,
-        })} className="w-full justify-center">
-          <Navigation size={15} /> Cargar como ruta del día
-        </Btn>
-      )}
-      {onSaveRuta && data.seqIds && (
-        !showSaveForm ? (
-          <Btn variant="ghost" onClick={() => setShowSaveForm(true)} className="mt-1 w-full justify-center text-slate-400">
-            <BookMarked size={15} /> Guardar ruta con nombre
-          </Btn>
-        ) : (
-          <div className="mt-2 space-y-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-            <Field label="Nombre de la ruta">
-              <input
-                className={inputCls}
-                value={saveNombre}
-                onChange={(e) => setSaveNombre(e.target.value)}
-                placeholder="Ej. Ruta lunes centro"
-                autoFocus
-              />
-            </Field>
-            <Field label="Fecha (escribe o usa el calendario)">
-              <input
-                className={inputCls}
-                type="date"
-                value={saveFecha}
-                onChange={(e) => setSaveFecha(e.target.value)}
-                placeholder="AAAA-MM-DD"
-              />
-            </Field>
-            {profiles.length > 0 && (
-              <Field label="Asignar a chofer">
-                <select
-                  className={inputCls}
-                  value={saveAssignedTo}
-                  onChange={(e) => setSaveAssignedTo(e.target.value)}
-                >
-                  <option value="">— Sin asignar —</option>
-                  {profiles.map((p) => (
-                    <option key={p.userId} value={p.userId}>{p.nombre} ({p.role})</option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            <div className="flex gap-2">
-              <Btn
-                disabled={savingRuta || !saveNombre.trim()}
-                onClick={async () => {
-                  setSavingRuta(true);
-                  try {
-                    await onSaveRuta({
-                      nombre: saveNombre.trim(),
-                      fecha: saveFecha || null,
-                      closed,
-                      stops: data.seqIds.map((id, i) => ({ id, name: data.seqNames[i] })),
-                      assignedTo: saveAssignedTo || null,
-                    });
-                    setSaveNombre(""); setSaveAssignedTo("");
-                    setShowSaveForm(false);
-                  } finally { setSavingRuta(false); }
-                }}
-                className="flex-1 justify-center"
-              >
-                <Save size={14} /> {savingRuta ? "Guardando…" : "Guardar"}
-              </Btn>
-              <Btn variant="ghost" onClick={() => { setShowSaveForm(false); setSaveNombre(""); }} className="flex-1 justify-center">
-                <X size={14} /> Cancelar
-              </Btn>
-            </div>
+        {saveError && (
+          <p className="rounded-lg border border-rose-800/50 bg-rose-950/20 px-3 py-2 text-xs text-rose-300">
+            <AlertTriangle size={13} className="mr-1 inline" /> {saveError}
+          </p>
+        )}
+        {editingRoute && (
+          <div className="flex gap-2">
+            <Btn onClick={handleUpdate} disabled={saving || !nombre.trim()} className="flex-1 justify-center">
+              <Save size={15} /> {saving ? "Actualizando…" : "Actualizar esta ruta guardada"}
+            </Btn>
+            <Btn variant="ghost" onClick={onDoneEditing} className="justify-center">
+              <X size={15} />
+            </Btn>
           </div>
-        )
-      )}
+        )}
+        <Btn onClick={handleAssign} disabled={saving || !assignedTo || !nombre.trim()} className="w-full justify-center">
+          <Navigation size={15} /> {saving ? "Asignando…" : editingRoute ? "Asignar como ruta nueva" : "Asignar a chofer"}
+        </Btn>
+        <Btn variant="ghost" onClick={() => doSave(null)} disabled={saving || !nombre.trim()} className="w-full justify-center text-slate-400">
+          <BookMarked size={15} /> {editingRoute ? "Guardar como plantilla nueva" : "Guardar plantilla sin asignar"}
+        </Btn>
+      </div>
     </Card>
   );
 }
@@ -1932,7 +2044,7 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
     if (editStops.length < 2) return;
     setEditSaving(true);
     try {
-      await onUpdateRutaGuardada(r.id, { nombre: r.nombre, fecha: r.fecha, closed: r.closed, stops: editStops, assignedTo: editAssignedTo || null });
+      await onUpdateRutaGuardada(r.id, { nombre: r.nombre, fecha: r.fecha, closed: r.closed, stops: editStops, assignedTo: editAssignedTo || null, horaInicio: r.horaInicio ?? null });
       cancelEdit();
     } catch (e) { console.error(e); }
     finally { setEditSaving(false); }
@@ -1943,8 +2055,9 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, rutasGuardadas
       <div className="space-y-4">
         <Card className="p-6">
           <Empty>
-            No hay ruta del día cargada. Ve a <span className="text-amber-400">Optimizar</span>, calcula
-            una ruta y presiona <span className="text-amber-400">"Cargar como ruta del día"</span>.
+            {isAdmin
+              ? <>No tienes una ruta en curso. Si ya asignaste una, aparece abajo — presiona <span className="text-amber-400">"Cargar"</span>. Para crear y asignar una nueva ve a <span className="text-amber-400">Generación y carga de rutas</span>.</>
+              : <>No tienes una ruta asignada en curso. Cuando el despachador te asigne una aparecerá abajo — presiona <span className="text-amber-400">"Cargar"</span> para iniciarla.</>}
           </Empty>
         </Card>
         {rutasGuardadas.length > 0 && (
