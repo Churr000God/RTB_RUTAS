@@ -174,7 +174,9 @@ export async function removePunto(id) {
 }
 
 /* --------------------------- Recorridos --------------------------- */
-const mapRec = (r) => ({ id: r.id, dateISO: r.fecha, ts: Number(r.ts), stops: r.stops });
+// edit_log: columna opcional (ver supabase/migrations/2026-07-seguimiento-ruta.sql).
+// Si la migración no se ha aplicado, se omite del insert (fallback abajo).
+const mapRec = (r) => ({ id: r.id, dateISO: r.fecha, ts: Number(r.ts), stops: r.stops, editLog: r.edit_log ?? [] });
 
 export async function getRecorridos() {
   const { data, error } = await supabase.from("recorridos").select("*").order("ts");
@@ -183,11 +185,15 @@ export async function getRecorridos() {
 }
 
 export async function addRecorrido(r) {
-  const { data, error } = await supabase
-    .from("recorridos")
-    .insert({ fecha: r.dateISO, ts: r.ts, stops: r.stops })
-    .select()
-    .single();
+  const payload = { fecha: r.dateISO, ts: r.ts, stops: r.stops };
+  if (r.editLog?.length) payload.edit_log = r.editLog;
+  let { data, error } = await supabase.from("recorridos").insert(payload).select().single();
+  if (error && payload.edit_log && /edit_log/.test(error.message || "")) {
+    // Migración de edit_log no aplicada todavía: reintenta sin la columna
+    // para no bloquear el guardado del recorrido (el log solo se pierde).
+    delete payload.edit_log;
+    ({ data, error } = await supabase.from("recorridos").insert(payload).select().single());
+  }
   if (error) throw error;
   return mapRec(data);
 }
@@ -265,15 +271,44 @@ export async function getAllRutasActivas() {
   return data.map(mapRutaActiva);
 }
 
-/** Guarda / actualiza el progreso de la ruta del chofer (upsert por driver_id). */
+/** Lee la ruta activa de UN chofer (o null si no tiene). Usado por el despacho antes de editar. */
+export async function getRutaActiva(driverId) {
+  const { data, error } = await supabase.from("ruta_activa").select("*").eq("driver_id", driverId).maybeSingle();
+  if (error) throw error;
+  return data ? mapRutaActiva(data) : null;
+}
+
+/**
+ * Guarda / actualiza el progreso de la ruta del chofer.
+ *
+ * Dos escritores (chofer y despacho) pueden tocar la misma fila a la vez,
+ * cada uno dueño de un grupo de campos distinto (ver rutaActivaMerge.js).
+ * En vez de un upsert ciego que pisaría el objeto completo, se llama a la
+ * función `merge_ruta_activa` (RPC, ver supabase/migrations/2026-07-
+ * seguimiento-ruta.sql): lee la fila con bloqueo, fusiona por grupo según
+ * los sellos `_wDriver/_wPlan/_wDispatch` y escribe el resultado — atómico.
+ *
+ * Si la migración aún no se aplicó, cae a un upsert normal (comportamiento
+ * previo: último que escribe pisa todo) para no romper la app.
+ */
 export async function saveRutaActiva(driverId, driverNombre, state) {
-  const { error } = await supabase
+  // driverNombre viaja también dentro del state (no solo en la columna
+  // denormalizada) para que el payload de realtime (que solo trae `state`)
+  // pueda mostrarlo sin depender de un refresh completo.
+  const incoming = { ...state, driverNombre };
+  const { error } = await supabase.rpc("merge_ruta_activa", {
+    p_driver: driverId, p_driver_nombre: driverNombre, p_incoming: incoming,
+  });
+  if (!error) return;
+  if (!/merge_ruta_activa/.test(error.message || "") && error.code !== "PGRST202" && error.code !== "42883") throw error;
+  // Fallback: la función RPC todavía no existe en la base (migración pendiente).
+  const { error: upsertError } = await supabase
     .from("ruta_activa")
     .upsert(
       { driver_id: driverId, driver_nombre: driverNombre, state, updated_at: new Date().toISOString() },
       { onConflict: "driver_id" }
     );
-  if (error) throw error;
+  if (upsertError) throw upsertError;
 }
 
 /**

@@ -3,10 +3,14 @@
 
    Guarda/lee el estado de la ruta en curso en localStorage, keyed
    por chofer, para no perder progreso si se cae la conexión. La
-   reconciliación entre la copia local y la del servidor usa el
-   mismo sello `_w` (Date.now() de la última escritura) que ya
-   protege contra ecos/lecturas viejas de Supabase Realtime.
+   reconciliación entre la copia local y la del servidor fusiona
+   por grupo de campos (progreso del chofer vs. plan/notas del
+   despacho) — ver rutaActivaMerge.js. Así, si el despacho editó el
+   plan mientras el chofer estaba sin señal, al reconectar se
+   conservan AMBOS: el progreso offline del chofer y el plan nuevo.
    ============================================================ */
+
+import { mergeRutaActiva } from "./rutaActivaMerge";
 
 const KEY_PREFIX = "rtb_ruta_activa_";
 
@@ -51,15 +55,11 @@ export function clearLocal(driverId, storage = defaultStorage()) {
 }
 
 /**
- * Decide qué estado usar entre la copia local (teléfono) y la del servidor,
- * quedándose con la de sello `_w` más reciente. Sin sello se trata como -1
- * (más vieja que cualquier escritura real).
+ * Decide qué estado usar entre la copia local (teléfono) y la del servidor.
+ * Delega en mergeRutaActiva: por cada grupo de campos (progreso del chofer /
+ * plan de pendientes / notas del despacho) gana el de sello más reciente;
+ * un lado sin sello se trata como -1 (más viejo que cualquier escritura real).
  */
 export function reconcile(localState, dbState) {
-  if (localState && !dbState) return localState;
-  if (dbState && !localState) return dbState;
-  if (!localState && !dbState) return null;
-  const lw = localState._w ?? -1;
-  const dw = dbState._w ?? -1;
-  return lw >= dw ? localState : dbState;
+  return mergeRutaActiva(localState, dbState);
 }

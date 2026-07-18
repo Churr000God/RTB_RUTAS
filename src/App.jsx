@@ -7,7 +7,7 @@ import {
   TrendingDown, CheckCircle2, Info, LogOut, Pencil, Search, FileText,
   Navigation, Flag, Calendar, BookMarked, Users, ShieldCheck, Radio, UserCog,
   UserCircle, KeyRound, UserPlus, Ban, Mail, ExternalLink, Copy,
-  Lock, Unlock, ArrowUp, ArrowDown, GripVertical,
+  Lock, Unlock, ArrowUp, ArrowDown, GripVertical, Send, MessageSquare,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
@@ -21,7 +21,7 @@ import {
   getPuntos, addPunto, updatePunto, removePunto,
   getRecorridos, addRecorrido, replaceAll,
   getRutasGuardadas, addRutaGuardada, updateRutaGuardada, removeRutaGuardada,
-  getAllRutasActivas, saveRutaActiva, clearRutaActiva, subscribeRutasActivas,
+  getAllRutasActivas, getRutaActiva, saveRutaActiva, clearRutaActiva, subscribeRutasActivas,
 } from "./lib/supabase";
 import {
   mean, DOW, buildMatrices, buildWaits, solveTSP, tourCost,
@@ -29,6 +29,8 @@ import {
   minToHHMM, parseHHMM,
 } from "./lib/routing";
 import { saveLocal, readLocal, clearLocal, reconcile } from "./lib/rutaDiaCache";
+import { mergeRutaActiva, effectivePending } from "./lib/rutaActivaMerge";
+import SeguimientoTab from "./components/seguimiento/SeguimientoTab";
 
 // Leaflet pesa lo suyo: se carga solo cuando se muestra un mapa (chunk aparte).
 const LeafletMap = lazy(() => import("./components/LeafletMap"));
@@ -54,6 +56,9 @@ const fmtTime = (ts) => {
   if (!ts) return "—";
   return new Date(ts).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 };
+// Id único para entradas de editLog/notes (crypto.randomUUID puede faltar en http no-seguro).
+const genEditId = () =>
+  (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 /* ============================================================
    UI base
@@ -97,6 +102,75 @@ const Stat = ({ label, value, highlight, color }) => (
     <div className={`font-mono text-sm ${color || (highlight ? "text-amber-300" : "text-slate-200")}`}>{value}</div>
   </div>
 );
+
+/**
+ * Banner en la pantalla del chofer: aviso puntual del despacho (p. ej. "se
+ * agregó una parada" o "nuevo mensaje"). El chofer lo descarta SIN confirmar
+ * — solo oculta el aviso para él (noticeAckAt, grupo driver); el despacho
+ * sigue viéndolo en su historial. La conversación en sí vive en NotesChat.
+ */
+const DispatchBanner = ({ notice, ackedAt, onDismiss }) => {
+  if (!notice || notice.at <= (ackedAt ?? 0)) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+      <Info size={14} className="mt-0.5 shrink-0" />
+      <span className="flex-1">{notice.text}</span>
+      <button onClick={onDismiss} className="shrink-0 text-amber-400 hover:text-amber-200" title="Descartar">
+        <X size={13} />
+      </button>
+    </div>
+  );
+};
+
+/**
+ * Pequeño chat entre despacho y chofer, guardado en `rutaDia.notes` (unión
+ * append-only en el merge — ver rutaActivaMerge.js: ambos lados pueden
+ * escribir ahí sin pisarse, cada mensaje se identifica por `id`). Cada
+ * entrada trae `from: "dispatch" | "driver"` para alinear la burbuja.
+ */
+const NotesChat = ({ notes, onSend }) => {
+  const [text, setText] = useState("");
+  const send = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onSend(trimmed);
+    setText("");
+  };
+  return (
+    <Card className="p-3">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        <MessageSquare size={12} /> Mensajes con despacho
+      </h3>
+      {notes.length > 0 ? (
+        <ul className="mb-2 max-h-48 space-y-1.5 overflow-y-auto">
+          {notes.map((n) => (
+            <li key={n.id} className={`flex ${n.from === "driver" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-amber-500/15 text-amber-100" : "bg-slate-800 text-slate-300"}`}>
+                <p>{n.text}</p>
+                <p className="mt-0.5 text-[9px] text-slate-500">{n.from === "driver" ? "Tú" : (n.byName || "Despacho")} · {fmtTime(n.at)}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-2 text-[11px] text-slate-600">Sin mensajes todavía.</p>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") send(); }}
+          placeholder="Responder al despacho…"
+          className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600"
+        />
+        <button onClick={send} disabled={!text.trim()}
+          className="shrink-0 rounded bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-40"
+          title="Enviar">
+          <Send size={12} />
+        </button>
+      </div>
+    </Card>
+  );
+};
 
 /* ============================================================
    Login
@@ -238,14 +312,24 @@ export default function OptimizadorRutas() {
   // Wrapper que persiste el progreso a Supabase y actualiza el estado local.
   // Recibe profile como parámetro para evitar stale-closure (se llama desde callbacks).
   // Escribe PRIMERO en localStorage (nunca falla, protege contra pérdida de progreso
-  // sin red) y luego intenta el upsert a Supabase.
+  // sin red) y luego intenta el upsert (merge_ruta_activa) a Supabase.
+  //
+  // El chofer solo escribe el grupo "driver" (route/phase/nextStop/etc — ver
+  // rutaActivaMerge.js): se bumpea `_wDriver`, y se preservan `_wPlan`/`_wDispatch`
+  // que ya venían en `next` (el plan/notas del despacho, sin tocar). El wrapper
+  // que edita el plan del despacho es `applyDispatchEdit`, más abajo.
   const updateRutaDia = useCallback((next, prof) => {
     setRutaDia(next);
     const p = prof ?? profileRef.current;
     if (!p) return;
     const stamp = Date.now();
     lastWriteRef.current = stamp;
-    const stamped = next ? { ...next, _w: stamp } : null;
+    let stamped = next ? { ...next, _wDriver: stamp } : null;
+    if (stamped) {
+      stamped._wPlan = stamped._wPlan ?? -1;
+      stamped._wDispatch = stamped._wDispatch ?? -1;
+      stamped._w = Math.max(stamped._wDriver, stamped._wPlan, stamped._wDispatch);
+    }
     if (stamped && !stamped.done) saveLocal(p.userId, stamped);
     else clearLocal(p.userId);
     (async () => {
@@ -283,22 +367,27 @@ export default function OptimizadorRutas() {
     setActiveRoutes(map);
     if (prof) {
       const dbState = activas.find((ra) => ra.driverId === prof.userId)?.state ?? null;
-      // Tercera fuente: la caché del teléfono (localStorage). reconcile() se queda
-      // con la de sello _w más reciente — cubre el caso de progreso guardado sin
-      // red que el servidor todavía no tiene.
+      // Tercera fuente: la caché del teléfono (localStorage). reconcile() fusiona
+      // por grupo de campos (mergeRutaActiva) — cubre el caso de progreso propio
+      // guardado sin red que el servidor todavía no tiene, Y el caso de que el
+      // despacho haya editado el plan mientras estábamos desconectados.
       const localState = readLocal(prof.userId);
       const candidate = reconcile(localState, dbState);
       setRutaDia((prev) => {
         // No pisar la pantalla "done" con estado viejo si acabamos de terminar la ruta
         if (prev?.done) return prev;
-        // No pisar progreso local con una lectura más vieja que nuestra última
-        // escritura (lag de replicación / refresh disparado justo después de guardar).
-        if (candidate?._w !== undefined && candidate._w <= lastWriteRef.current) return prev;
-        // Si no hay candidato (ni servidor ni caché) pero ya escribimos progreso desde
-        // este dispositivo, asumimos que es una lectura adelantada (no un borrado real):
-        // el borrado real siempre llega también por el canal realtime (DELETE).
-        if (candidate == null && prev && !prev.done && lastWriteRef.current > 0) return prev;
-        return candidate;
+        if (candidate == null) {
+          // Ni servidor ni caché: si ya escribimos progreso desde este dispositivo,
+          // asumimos que es una lectura adelantada (no un borrado real): el borrado
+          // real siempre llega también por el canal realtime (evento DELETE).
+          if (prev && !prev.done && lastWriteRef.current > 0) return prev;
+          return null;
+        }
+        // Fusionar con lo que ya tenemos en memoria: por grupo, no por sello
+        // global — así una edición del despacho con sello menor al de nuestra
+        // última escritura de progreso (pero real y más nueva que la que
+        // teníamos de SU grupo) no se descarta por error.
+        return mergeRutaActiva(prev, candidate);
       });
     }
   }, []);
@@ -325,7 +414,11 @@ export default function OptimizadorRutas() {
       });
     })();
 
-    // Suscripción realtime: actualiza rutas activas en vivo (admin ve todas, driver solo la suya)
+    // Suscripción realtime: actualiza rutas activas en vivo (admin ve todas, driver solo la suya).
+    // Cada evento se FUSIONA por grupo de campos (mergeRutaActiva) contra lo que ya
+    // tenemos, en vez de reemplazar de golpe: así el eco de una escritura propia, o
+    // una edición del despacho sobre el plan de OTRO chofer, nunca pisan un grupo
+    // ajeno más nuevo (ver src/lib/rutaActivaMerge.js).
     try {
       realtimeChannel = subscribeRutasActivas(({ eventType, driverId, state }) => {
         setActiveRoutes((prev) => {
@@ -334,21 +427,22 @@ export default function OptimizadorRutas() {
             delete next[driverId];
             return next;
           }
-          return { ...prev, [driverId]: { driverId, driverNombre: state?.driverNombre, state } };
+          const prevState = prev[driverId]?.state ?? null;
+          const merged = mergeRutaActiva(prevState, state);
+          return { ...prev, [driverId]: { driverId, driverNombre: merged?.driverNombre ?? state?.driverNombre, state: merged } };
         });
-        // Actualizar rutaDia propia (ignorando eco de escritura local)
+        // Actualizar rutaDia propia (fusión por grupo, no reemplazo)
         const myId = profileRef.current?.userId;
         if (driverId === myId) {
-          // Ignorar cualquier eco igual o más viejo que nuestra última escritura local:
-          // con escrituras rápidas seguidas, el eco de una escritura anterior puede
-          // llegar después de que ya aplicamos una más nueva, y pisarla hacia atrás.
-          if (state?._w !== undefined && state._w <= lastWriteRef.current) return;
-          // Mantener la caché local al día con lo que confirma el servidor.
-          if (eventType === "DELETE") clearLocal(myId); else saveLocal(myId, state);
-          // Si la ruta local ya está marcada como done, no la pisar con el DELETE de limpieza
+          if (eventType === "DELETE") {
+            clearLocal(myId);
+            setRutaDia((prev) => (prev?.done ? prev : null));
+            return;
+          }
           setRutaDia((prev) => {
-            if (eventType === "DELETE") return prev?.done ? prev : null;
-            return state;
+            const merged = mergeRutaActiva(prev, state);
+            saveLocal(myId, merged);
+            return merged;
           });
         }
       });
@@ -405,11 +499,18 @@ export default function OptimizadorRutas() {
       endId: closed ? startStop.id : null,
       horaInicio: horaInicio ?? null,
       route: [],
+      // Plan de pendientes: lo agrega/quita/reordena el chofer al crearlo,
+      // pero desde que la ruta arranca es propiedad del despacho (§5 del
+      // módulo de Seguimiento) — ver src/lib/rutaActivaMerge.js.
       remaining: stops.slice(1).map((s) => ({ id: s.id, name: s.name })),
       phase: "initial",
       nextStop: null,
       nextLegKm: "",
       done: false,
+      noticeAckAt: 0,
+      notes: [],
+      notice: null,
+      editLog: [],
     };
     updateRutaDia(next, profile);
     setTab("ruta-dia");
@@ -432,6 +533,75 @@ export default function OptimizadorRutas() {
     if (!confirm("¿Liberar / cancelar la ruta de este chofer?")) return;
     try { await clearRutaActiva(driverId); } catch (e) { console.error(e); }
   };
+
+  /**
+   * Único punto de escritura del DESPACHO sobre la ruta activa de OTRO
+   * chofer. Relee el estado más fresco del servidor, aplica `editFn` (que
+   * solo debe tocar `remaining`/`notes`/`notice`/`editLog` — nunca
+   * `route`/`phase`/`nextStop`, eso es del chofer) y guarda vía
+   * `saveRutaActiva`, que a su vez llama a la función RPC `merge_ruta_activa`
+   * (fusión atómica en el servidor, ver supabase/migrations/2026-07-
+   * seguimiento-ruta.sql) para no pisar una escritura concurrente del chofer.
+   */
+  const applyDispatchEdit = useCallback(async (driverId, driverNombre, editFn, { group = "plan" } = {}) => {
+    const fresh = await getRutaActiva(driverId);
+    if (!fresh?.state || fresh.state.done) return;
+    const stamp = Date.now();
+    const by = profileRef.current?.userId ?? null;
+    const byName = profileRef.current?.nombre ?? null;
+    let next = { ...fresh.state };
+    next = editFn(next, { stamp, by, byName }) || next;
+    if (group === "plan") next._wPlan = stamp;
+    if (group === "dispatch") next._wDispatch = stamp;
+    next._wDriver = next._wDriver ?? -1;
+    next._wPlan = next._wPlan ?? -1;
+    next._wDispatch = next._wDispatch ?? -1;
+    next._w = Math.max(next._wDriver, next._wPlan, next._wDispatch);
+    await saveRutaActiva(driverId, fresh.driverNombre ?? driverNombre, next);
+  }, []);
+
+  const onDispatchAddStop = (driverId, driverNombre, point) =>
+    applyDispatchEdit(driverId, driverNombre, (state, { stamp, by, byName }) => {
+      state.remaining = [...(state.remaining || []), { id: point.id, name: point.name }];
+      state.editLog = [...(state.editLog || []), { id: genEditId(), at: stamp, by, byName, action: "add", pointId: point.id, pointName: point.name }];
+      return state;
+    }, { group: "plan" });
+
+  const onDispatchRemoveStop = (driverId, driverNombre, point) =>
+    applyDispatchEdit(driverId, driverNombre, (state, { stamp, by, byName }) => {
+      state.remaining = (state.remaining || []).filter((s) => s.id !== point.id);
+      state.editLog = [...(state.editLog || []), { id: genEditId(), at: stamp, by, byName, action: "remove", pointId: point.id, pointName: point.name }];
+      return state;
+    }, { group: "plan" });
+
+  // direction: -1 (subir) / +1 (bajar). Se reordena por id sobre la lista
+  // VISIBLE (effectivePending del state recién leído), no por índice bruto
+  // de `state.remaining`: ese array crudo puede traer entradas "fantasma"
+  // ya consumidas (visitadas o en camino) que todavía no se limpiaron, y
+  // un índice del cliente quedaría desalineado con ellas. De paso, al
+  // reescribir `remaining` solo con la lista visible se limpian esas
+  // entradas fantasma (mismo efecto que "Resuggest" del chofer).
+  const onDispatchReorder = (driverId, driverNombre, pointId, direction) =>
+    applyDispatchEdit(driverId, driverNombre, (state, { stamp, by, byName }) => {
+      const visible = effectivePending(state);
+      const idx = visible.findIndex((s) => s.id === pointId);
+      const swapIdx = idx + direction;
+      if (idx < 0 || swapIdx < 0 || swapIdx >= visible.length) return state;
+      const reordered = [...visible];
+      [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+      state.remaining = reordered;
+      state.editLog = [...(state.editLog || []), { id: genEditId(), at: stamp, by, byName, action: "reorder", pointId, pointName: visible[idx].name, fromIndex: idx, toIndex: swapIdx }];
+      return state;
+    }, { group: "plan" });
+
+  const onDispatchSendNote = (driverId, driverNombre, text) =>
+    applyDispatchEdit(driverId, driverNombre, (state, { stamp, by, byName }) => {
+      const entry = { id: genEditId(), at: stamp, by, byName, from: "dispatch", text };
+      state.notes = [...(state.notes || []), entry].slice(-50);
+      state.notice = { id: genEditId(), text: `Mensaje del despacho: "${text}"`, kind: "info", at: stamp };
+      state.editLog = [...(state.editLog || []), { id: genEditId(), at: stamp, by, byName, action: "note", detail: text }];
+      return state;
+    }, { group: "dispatch" });
 
   const onAddPunto = async (p) => { await addPunto(p); await refresh(); };
   const onUpdatePunto = async (id, p) => { await updatePunto(id, p); await refresh(); };
@@ -470,7 +640,7 @@ export default function OptimizadorRutas() {
   // - admin: todas
   const allTabs = [
     { id: "ruta-dia",   label: "Ruta del día",        icon: Navigation,  roles: ["admin","supervisor","driver"] },
-    { id: "monitor",    label: "Monitor",              icon: Radio,       roles: ["admin","supervisor"] },
+    { id: "seguimiento",label: "Seguimiento",          icon: Radio,       roles: ["admin","supervisor"] },
     { id: "optimizar",  label: "Generación y carga de rutas", icon: Zap,  roles: ["admin","supervisor"] },
     { id: "registrar",  label: "Registrar recorrido",  icon: Clock,       roles: ["admin","supervisor"] },
     { id: "ahorro",     label: "Análisis de ahorro",   icon: TrendingDown,roles: ["admin","supervisor"] },
@@ -523,7 +693,7 @@ export default function OptimizadorRutas() {
             {tabs.map((t) => {
               const Icon = t.icon;
               const hasActive = t.id === "ruta-dia" && rutaDia && !rutaDia.done;
-              const monitorCount = t.id === "monitor" ? Object.keys(activeRoutes).length : 0;
+              const monitorCount = t.id === "seguimiento" ? Object.keys(activeRoutes).length : 0;
               return (
                 <button key={t.id} onClick={() => setTab(t.id)}
                   className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition ${tab === t.id ? "bg-slate-800 text-amber-400" : "text-slate-400 hover:text-slate-200"}`}>
@@ -543,8 +713,21 @@ export default function OptimizadorRutas() {
         {tab === "ahorro"    && <AhorroTab points={points} recorridos={recorridos} />}
         {tab === "matriz"    && <MatrizTab points={points} segments={obs.segments} />}
         {tab === "optimizar" && <OptimizarTab points={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onSaveRutaGuardada={onSaveRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} profiles={profiles} />}
-        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profiles={profiles} online={online} syncOk={syncOk} />}
-        {tab === "monitor"   && <MonitorTab activeRoutes={activeRoutes} profiles={profiles} onLiberar={onLiberarRuta} />}
+        {tab === "ruta-dia"  && <RutaDiaTab rutaDia={rutaDia} setRutaDia={(next) => updateRutaDia(next, profile)} onSaveRuta={onAddRecorrido} allPoints={points} segments={obs.segments} waits={obs.waits} rutasGuardadas={rutasGuardadas} onLoadRutaGuardada={onLoadRutaGuardada} onUpdateRutaGuardada={onUpdateRutaGuardada} onDeleteRutaGuardada={onDeleteRutaGuardada} isAdmin={isStaff} profile={profile} profiles={profiles} online={online} syncOk={syncOk} />}
+        {tab === "seguimiento" && (
+          <SeguimientoTab
+            activeRoutes={activeRoutes}
+            profiles={profiles}
+            allPoints={points}
+            segments={obs.segments}
+            waits={obs.waits}
+            onLiberar={onLiberarRuta}
+            onAddStop={onDispatchAddStop}
+            onRemoveStop={onDispatchRemoveStop}
+            onReorder={onDispatchReorder}
+            onSendNote={onDispatchSendNote}
+          />
+        )}
         {tab === "datos"     && <DatosTab points={points} recorridos={recorridos} onReplaceAll={onReplaceAll} />}
         {tab === "usuarios"  && <UsuariosTab profiles={profiles} currentUserId={profile?.userId} onUpdate={onUpdateProfileRole} onCrear={onAdminCrearUsuario} onResetPassword={adminResetPassword} onToggle={onAdminToggleUsuario} />}
         {tab === "micuenta"  && <MiCuentaTab profile={profile} onUpdateName={onUpdateMyName} onChangePassword={changeMyPassword} />}
@@ -553,9 +736,6 @@ export default function OptimizadorRutas() {
   );
 }
 
-/* ============================================================
-   Tab: Monitor (admin) — rutas activas de todos los choferes en vivo
-   ============================================================ */
 /* ============================================================
    Tab: Usuarios (admin) — alta, roles, reset de contraseña y
    deshabilitar/habilitar cuentas
@@ -850,58 +1030,10 @@ function MiCuentaTab({ profile, onUpdateName, onChangePassword }) {
   );
 }
 
-function MonitorTab({ activeRoutes, profiles, onLiberar }) {
-  const entries = Object.values(activeRoutes);
-  if (entries.length === 0) {
-    return (
-      <Card className="p-8 text-center">
-        <Radio size={36} className="mx-auto mb-3 text-slate-600" />
-        <p className="text-sm text-slate-400">No hay rutas en curso en este momento.</p>
-      </Card>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-slate-500">{entries.length} {entries.length === 1 ? "ruta activa" : "rutas activas"} · actualización en vivo</p>
-      {entries.map(({ driverId, driverNombre, state }) => {
-        if (!state) return null;
-        const { title, route = [], remaining = [], phase, done } = state;
-        const phaseLabel = { initial: "En espera", "at-stop": "En parada", "choose-next": "Eligiendo destino", traveling: "En camino" }[phase] ?? phase;
-        return (
-          <Card key={driverId} className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Users size={14} className="shrink-0 text-amber-400" />
-                  <span className="text-sm font-semibold text-slate-200">{driverNombre ?? "Chofer"}</span>
-                  {done && <span className="rounded bg-teal-900/60 px-1.5 py-0.5 text-[10px] text-teal-300">Terminada</span>}
-                </div>
-                <p className="text-xs text-slate-400 mb-2">{title}</p>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                  <span><span className="font-mono text-teal-300">{route.length}</span> visitadas</span>
-                  <span><span className="font-mono text-slate-300">{remaining.length}</span> pendientes</span>
-                  <span className="text-slate-600">Fase: <span className="text-slate-400">{phaseLabel}</span></span>
-                  {route.length > 0 && (
-                    <span className="text-slate-600">Última: <span className="text-slate-300">{route[route.length - 1]?.name}</span></span>
-                  )}
-                </div>
-              </div>
-              {!done && (
-                <Btn
-                  variant="ghost"
-                  onClick={() => onLiberar(driverId)}
-                  className="shrink-0 py-1 px-2.5 text-xs text-rose-400 hover:text-rose-300"
-                >
-                  <X size={13} /> Liberar
-                </Btn>
-              )}
-            </div>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
+// El antiguo MonitorTab (conteos + fase, sin edición) fue reemplazado por
+// SeguimientoTab (src/components/seguimiento/SeguimientoTab.jsx): línea de
+// tiempo, estadísticas en vivo, identidad por color, edición del plan de
+// pendientes y alertas de desviación. Ver el wiring del tab "seguimiento" arriba.
 
 /* ============================================================
    Tab: Puntos
@@ -2123,7 +2255,7 @@ function StopInfoPanel({ point, nota, onNotaChange, estado, onEstadoChange, show
   );
 }
 
-function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, waits, rutasGuardadas = [], onLoadRutaGuardada, onUpdateRutaGuardada, onDeleteRutaGuardada, isAdmin = false, profiles = [], online = true, syncOk = true }) {
+function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, waits, rutasGuardadas = [], onLoadRutaGuardada, onUpdateRutaGuardada, onDeleteRutaGuardada, isAdmin = false, profile = null, profiles = [], online = true, syncOk = true }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [extraSearch, setExtraSearch] = useState("");
@@ -2146,7 +2278,16 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
   // Datos derivados de rutaDia con defaults seguros (rutaDia puede ser null aquí:
   // todos los Hooks de abajo deben poder correr igual antes del early return).
   const route = rutaDia?.route ?? [];
-  const remaining = rutaDia?.remaining ?? [];
+  // `remaining` es el plan de pendientes derivado (effectivePending): el plan
+  // en sí (rutaDia.remaining) es propiedad del despacho — el chofer NUNCA lo
+  // escribe directamente. Elegir/llegar/cambiar destino solo mueve el estado
+  // driver (route/phase/nextStop); lo "consumido" se resta aquí, no se borra
+  // del plan (así una edición del despacho nunca choca con el progreso del
+  // chofer). Ver src/lib/rutaActivaMerge.js.
+  const remaining = useMemo(
+    () => effectivePending(rutaDia),
+    [rutaDia?.remaining, rutaDia?.route, rutaDia?.phase, rutaDia?.nextStop]
+  );
   const phase = rutaDia?.phase ?? null;
   const startId = rutaDia?.startId ?? null;
   const startName = rutaDia?.startName ?? "";
@@ -2459,6 +2600,17 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
   };
   const withSnapshot = (fn) => (...args) => { setPrevSnapshot(rutaDia); fn(...args); };
 
+  // Respuesta del chofer en el chat con el despacho. `notes` se fusiona por
+  // unión (no por dueño de grupo — ver rutaActivaMerge.js), así que ambos
+  // lados pueden escribir ahí sin pisarse aunque esta escritura viaje por
+  // el mismo camino que el resto del progreso del chofer (updateRutaDia).
+  const sendDriverNote = (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const entry = { id: genEditId(), at: Date.now(), by: profile?.userId ?? null, byName: profile?.nombre ?? null, from: "driver", text: trimmed };
+    patch({ notes: [...(rutaDia.notes || []), entry].slice(-50) });
+  };
+
   /* Puntos disponibles como "extra" (no planificados, no visitados, no el inicio) */
   const visitedIds = new Set(route.map((s) => s.id));
   const remainingIds = new Set(remaining.map((s) => s.id));
@@ -2494,7 +2646,12 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
     });
     setSaving(true); setErr("");
     try {
-      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops });
+      // El registro de ediciones del despacho (agregó/quitó/reordenó/nota) se
+      // persiste con el recorrido — queda como historial aunque ruta_activa
+      // se borre al terminar. Requiere recorridos.edit_log (ver supabase/
+      // migrations/2026-07-seguimiento-ruta.sql); si no se aplicó, addRecorrido
+      // reintenta sin la columna y el log simplemente no se conserva.
+      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops, editLog: rutaDia.editLog || [] });
       patch({ route: finalRoute, done: true });
       setPrevSnapshot(null);
     } catch { setErr("Error al guardar. Intenta de nuevo."); }
@@ -2518,8 +2675,10 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
   });
 
   const handleSelectNext = withSnapshot((stop) => {
+    // No se toca `rutaDia.remaining` (el plan, propiedad del despacho): el
+    // punto elegido queda "consumido" automáticamente por effectivePending()
+    // en cuanto phase pasa a "traveling" con este nextStop.
     patch({
-      remaining: remaining.filter((s) => s.id !== stop.id),
       nextStop: stop,
       nextLegKm: "",
       phase: "traveling",
@@ -2546,18 +2705,25 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
 
   const handleChangeDestino = withSnapshot(() => {
     if (!nextStop) return;
+    // Idem: `nextStop` sigue en el plan del despacho (nunca se sacó de ahí),
+    // así que basta con soltarlo para que effectivePending() lo muestre de
+    // nuevo como pendiente.
     patch({
-      remaining: [...remaining, nextStop],
       nextStop: null, nextLegKm: "",
       phase: "choose-next",
     });
     setPendingLegBreakMin(0);
   });
 
+  // Único caso en que el chofer SÍ reescribe el plan (`remaining`): aplicar
+  // su propio orden sugerido. Bumpea `_wPlan` explícitamente para que la
+  // fusión por grupo (mergeRutaActiva) lo reconozca como la versión más
+  // nueva del plan, no solo del progreso driver.
   const handleResuggest = () => {
     if (!suggested?.orderIds?.length) return;
     setPrevSnapshot(rutaDia);
-    patch({ remaining: suggested.orderIds.map((id) => remaining.find((s) => s.id === id)).filter(Boolean) });
+    const reordered = suggested.orderIds.map((id) => remaining.find((s) => s.id === id)).filter(Boolean);
+    patch({ remaining: reordered, _wPlan: Date.now() });
   };
 
   const handleUndo = () => {
@@ -2624,6 +2790,13 @@ function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints, segments, wait
 
   return (
     <div className="space-y-4">
+      <DispatchBanner
+        notice={rutaDia.notice}
+        ackedAt={rutaDia.noticeAckAt}
+        onDismiss={() => patch({ noticeAckAt: Date.now() })}
+      />
+      <NotesChat notes={rutaDia.notes || []} onSend={sendDriverNote} />
+
       {/* Encabezado / resumen de ruta — siempre visible, incluso antes de iniciar */}
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">

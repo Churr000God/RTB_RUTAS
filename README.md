@@ -24,6 +24,13 @@ y mide cuánto tiempo se está desperdiciando por ruteo subóptimo.
   cae la conexión, con indicador de conexión y re-sincronización automática. Permite **deshacer la
   última acción** y muestra un **resumen detallado** al terminar. Un chofer solo puede tener una ruta
   en ejecución a la vez (aunque se le puedan asignar varias).
+- **Seguimiento de ruta** (admin/supervisor) — interfaz en vivo de todas las rutas activas: identidad
+  del chofer (color + iniciales), línea de tiempo de paradas con sus tiempos, estadísticas en curso
+  (progreso, ETA, esperas), alertas de desviación (tarda más de lo esperado en una parada o tramo), y
+  **edición en vivo** del plan de pendientes (agregar / quitar no visitada / reordenar) que se refleja
+  del lado del chofer con un aviso. Incluye un **chat breve** despacho↔chofer para mensajes puntuales.
+  Dos escritores (chofer y despacho) sobre la misma ruta activa se resuelven por **fusión de campos**
+  (`src/lib/rutaActivaMerge.js` + función RPC `merge_ruta_activa`), no por "último que escribe gana".
 - **Registrar recorrido** — captura el recorrido real (tiempos de manejo, distancias y esperas). Alimenta el aprendizaje.
 - **Matriz aprendida** — tiempos punto a punto con su nivel de confianza (`×N` = nº de observaciones), filtrable por día de la semana.
 - **Análisis de ahorro** — compara tu orden real vs. el orden óptimo con la misma matriz, aislando el desperdicio de ruteo y mostrando su evolución en el tiempo.
@@ -73,16 +80,23 @@ La guía completa de integración y despliegue está en **[`docs/INTEGRACION.md`
 │   ├── App.jsx              # UI (pestañas, componentes) + análisis de ahorro
 │   ├── components/
 │   │   ├── LeafletMap.jsx   # mapa de un punto (alta/edición), lazy
-│   │   └── RouteMap.jsx     # mapa de una ruta completa (pines numerados + línea), lazy
+│   │   ├── RouteMap.jsx     # mapa de una ruta completa (pines numerados + línea), lazy
+│   │   └── seguimiento/     # tab "Seguimiento" (admin/supervisor): tarjeta por chofer con
+│   │                        # línea de tiempo, estadísticas, editor de plan, chat y alertas
 │   └── lib/
 │       ├── supabase.js         # cliente + capa de datos (auth + CRUD)
 │       ├── routing.js          # TSP (con anclajes), matrices, métricas, ETA — sin React, testeable
 │       ├── routing.test.js     # pruebas unitarias (Vitest)
 │       ├── rutaDiaCache.js     # caché offline de la ruta en curso (localStorage) — sin React, testeable
-│       └── rutaDiaCache.test.js
+│       ├── rutaDiaCache.test.js
+│       ├── rutaActivaMerge.js  # fusión por grupos de campos de ruta_activa (chofer vs. despacho) — sin React, testeable
+│       ├── rutaActivaMerge.test.js
+│       └── driverColor.js      # color + iniciales deterministas por chofer — sin React, testeable
 ├── supabase/
 │   ├── schema.sql           # tablas + índices + políticas RLS (fuente de verdad, instalación nueva)
-│   └── migrations/          # parches incrementales fechados, uno por módulo
+│   ├── migrations/          # parches incrementales fechados, uno por módulo
+│   ├── DEPLOY_USUARIOS.md   # guía de despliegue del módulo de Usuarios
+│   └── DEPLOY_SEGUIMIENTO.md # guía de despliegue del módulo de Seguimiento de ruta
 └── docs/
     └── INTEGRACION.md       # guía paso a paso
 ```

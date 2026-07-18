@@ -48,17 +48,21 @@ describe("rutaDiaCache — saveLocal/readLocal/clearLocal", () => {
 });
 
 describe("rutaDiaCache — reconcile", () => {
-  it("gana el estado con _w más reciente", () => {
+  // Desde que reconcile() delega en mergeRutaActiva (fusión por grupo de
+  // campos), un merge con ambos lados presentes ya no devuelve exactamente
+  // uno de los dos objetos (toBe) sino uno fusionado — se compara por campo.
+
+  it("gana el estado con _w más reciente (sin sellos por grupo, cae en el legado)", () => {
     const local = { phase: "at-stop", _w: 100 };
     const db = { phase: "choose-next", _w: 200 };
-    expect(reconcile(local, db)).toBe(db);
-    expect(reconcile(db, local)).toBe(db);
+    expect(reconcile(local, db).phase).toBe("choose-next");
+    expect(reconcile(db, local).phase).toBe("choose-next");
   });
 
   it("si empatan los sellos, prefiere el local (evita perder progreso reciente)", () => {
     const local = { phase: "at-stop", _w: 100 };
     const db = { phase: "choose-next", _w: 100 };
-    expect(reconcile(local, db)).toBe(local);
+    expect(reconcile(local, db).phase).toBe("at-stop");
   });
 
   it("usa el local si el servidor no tiene fila (aún no sincronizado)", () => {
@@ -78,6 +82,23 @@ describe("rutaDiaCache — reconcile", () => {
   it("trata un estado sin sello _w como más viejo que cualquier escritura real", () => {
     const local = { phase: "at-stop" }; // sin _w
     const db = { phase: "choose-next", _w: 1 };
-    expect(reconcile(local, db)).toBe(db);
+    expect(reconcile(local, db).phase).toBe("choose-next");
+  });
+
+  it("fusiona por grupo: conserva el progreso local del chofer y adopta el plan más nuevo del despacho", () => {
+    const local = {
+      route: [{ id: "s" }, { id: "a" }], phase: "at-stop", nextStop: null,
+      remaining: [{ id: "b" }],
+      _wDriver: 500, _wPlan: 100, _w: 500, // el chofer avanzó offline
+    };
+    const db = {
+      route: [{ id: "s" }], phase: "choose-next", nextStop: null,
+      remaining: [{ id: "b" }, { id: "c" }], // el despacho agregó "c" mientras el chofer estaba sin señal
+      _wDriver: 100, _wPlan: 300, _w: 300,
+    };
+    const merged = reconcile(local, db);
+    expect(merged.route).toEqual(local.route);       // progreso offline del chofer, no se pierde
+    expect(merged.phase).toBe("at-stop");
+    expect(merged.remaining).toEqual(db.remaining);   // plan nuevo del despacho, se adopta
   });
 });
