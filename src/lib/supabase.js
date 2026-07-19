@@ -15,21 +15,35 @@ if (!url || !anon) {
 export const supabase = createClient(url, anon);
 
 /** Invoca una Edge Function y propaga el mensaje real del cuerpo de error.
- * Cuando la función responde no-2xx, supabase-js lanza un error genérico
- * ("Edge Function returned a non-2xx status code") y deja el JSON real
- * que la función mandó (`{ error: "..." }`, ver supabase/functions/*)
- * colgado en `error.context` (un Response) sin leerlo — así que el
- * mensaje específico (permiso, validación, correo duplicado, etc.) nunca
- * llegaba a la UI. Esta función lo lee antes de propagar. */
+ * Cuando la función responde no-2xx, supabase-js lanza `FunctionsHttpError`
+ * con `.message` genérico ("Edge Function returned a non-2xx status code")
+ * y deja la respuesta real (status + cuerpo, `{ error: "..." }` si la
+ * función es una de las nuestras, ver supabase/functions/*) colgada en
+ * `error.context` (un Response) sin leerla. Lee el cuerpo como texto
+ * (funciona sea JSON válido o no — un fallo de arranque/boot de la función
+ * en Supabase puede devolver texto plano o HTML, no JSON), intenta
+ * parsearlo, y si no es el `{ error }` esperado usa el texto crudo tal
+ * cual en vez de quedarse con el genérico. Agrega el status HTTP al
+ * mensaje final y loguea el detalle completo a consola (para diagnosticar
+ * sin depender de que el mensaje quepa bien en la UI). */
 async function invokeFn(name, body) {
   const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) {
     let message = error.message;
+    const status = error.context?.status;
     try {
-      const errBody = await error.context?.json?.();
-      if (errBody?.error) message = errBody.error;
-    } catch { /* cuerpo no-JSON o ya consumido: nos quedamos con el genérico */ }
-    throw new Error(message);
+      const raw = await error.context?.text?.();
+      if (raw) {
+        try {
+          const errBody = JSON.parse(raw);
+          message = errBody?.error || raw;
+        } catch {
+          message = raw.slice(0, 300); // no era JSON: mostrar el texto crudo (recortado)
+        }
+      }
+    } catch { /* error.context no es un Response legible (p.ej. fallo de red antes de llegar al servidor) */ }
+    console.error(`[invokeFn:${name}]`, status != null ? `HTTP ${status}` : error.name, message, error);
+    throw new Error(status != null ? `${message} (HTTP ${status})` : message);
   }
   if (data?.error) throw new Error(data.error);
   return data;
