@@ -353,22 +353,88 @@ export function subscribeRutasActivas(cb) {
     .subscribe();
 }
 
-/* ------------------ Importar JSON / Borrar todo ------------------- */
+/* ------------------ Respaldo completo (export/import) -------------------
+ * Reemplaza al viejo replaceAll(points, recorridos), que solo cubría esas
+ * dos tablas y además PERDÍA direccion (puntos) y edit_log/driver_id
+ * (recorridos) al reimportar, porque reconstruía las filas sin esas
+ * columnas. getBackup() junta las 4 fuentes; restoreBackup() reinserta
+ * preservando todas las columnas y permite elegir qué tipos reemplazar
+ * (§3.1 del documento de mejoras transversales). */
 const IMPOSSIBLE = "00000000-0000-0000-0000-000000000000";
 
-export async function replaceAll(points, recorridos) {
-  await supabase.from("recorridos").delete().neq("id", IMPOSSIBLE);
-  await supabase.from("puntos").delete().neq("id", IMPOSSIBLE);
-  if (points.length) {
-    const { error } = await supabase.from("puntos").insert(
-      points.map((p) => ({ id: p.id, nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null }))
-    );
-    if (error) throw error;
+/** Todo el estado respaldable en un solo objeto (para exportar a JSON). */
+export async function getBackup() {
+  const [points, recorridos, rutasGuardadas, profiles] = await Promise.all([
+    getPuntos(), getRecorridos(), getRutasGuardadas().catch(() => []), getProfiles(),
+  ]);
+  return { version: 2, exported: new Date().toISOString(), points, recorridos, rutasGuardadas, profiles };
+}
+
+/**
+ * Restaura un respaldo, sección por sección según `tipos` (import
+ * selectivo — { points, recorridos, rutasGuardadas, profiles }, cada uno
+ * true/false). Cada sección marcada reemplaza POR COMPLETO esa tabla, y
+ * cada una es independiente de las demás: importar solo "Puntos" no
+ * toca recorridos ni ninguna otra tabla (si el respaldo trae puntos con
+ * ids distintos a los actuales, los recorridos existentes pueden quedar
+ * con referencias a puntos que ya no están — mismo trade-off que editar
+ * puntos a mano; usa "Puntos" + "Recorridos" juntos para un swap limpio).
+ *
+ * profiles es la excepción: las cuentas viven en auth.users y solo se
+ * crean vía Edge Function (admin-crear-usuario) — aquí NO se crean
+ * cuentas nuevas, solo se actualiza nombre/rol de perfiles que YA
+ * existen (por user_id). Un archivo de respaldo viejo (solo
+ * {points, recorridos}, sin las claves nuevas) sigue funcionando: basta
+ * con no marcar los tipos que no trae.
+ */
+export async function restoreBackup(data, tipos = {}) {
+  if (tipos.points) {
+    await supabase.from("puntos").delete().neq("id", IMPOSSIBLE);
+    const pts = data.points || [];
+    if (pts.length) {
+      const { error } = await supabase.from("puntos").insert(
+        pts.map((p) => ({ id: p.id, nombre: p.name, tipo: p.type, lat: p.lat ?? null, lng: p.lng ?? null, direccion: p.direccion || null }))
+      );
+      if (error) throw error;
+    }
   }
-  if (recorridos.length) {
-    const { error } = await supabase.from("recorridos").insert(
-      recorridos.map((r) => ({ id: r.id, fecha: r.dateISO, ts: r.ts, stops: r.stops }))
-    );
-    if (error) throw error;
+  if (tipos.recorridos) {
+    await supabase.from("recorridos").delete().neq("id", IMPOSSIBLE);
+    await restoreRecorridos(data.recorridos || []);
   }
+  if (tipos.rutasGuardadas) {
+    await supabase.from("rutas_guardadas").delete().neq("id", IMPOSSIBLE);
+    const rutas = data.rutasGuardadas || [];
+    if (rutas.length) {
+      const { error } = await supabase.from("rutas_guardadas").insert(
+        rutas.map((r) => ({ id: r.id, nombre: r.nombre, fecha: r.fecha || null, closed: r.closed, stops: r.stops, assigned_to: r.assignedTo ?? null, hora_inicio: r.horaInicio || null }))
+      );
+      if (error) throw error;
+    }
+  }
+  if (tipos.profiles) {
+    for (const p of data.profiles || []) {
+      if (!p.userId) continue;
+      await supabase.from("profiles").update({ nombre: p.nombre, role: p.role }).eq("user_id", p.userId);
+    }
+  }
+}
+
+/** Reinserta recorridos preservando edit_log/driver_id, con el mismo
+ * reintento por columna opcional que addRecorrido (ver arriba). */
+async function restoreRecorridos(recorridos) {
+  if (!recorridos.length) return;
+  let payload = recorridos.map((r) => ({
+    id: r.id, fecha: r.dateISO, ts: r.ts, stops: r.stops,
+    ...(r.editLog?.length ? { edit_log: r.editLog } : {}),
+    ...(r.driverId ? { driver_id: r.driverId } : {}),
+  }));
+  let { error } = await supabase.from("recorridos").insert(payload);
+  while (error) {
+    const missing = ["edit_log", "driver_id"].find((col) => (error.message || "").includes(col));
+    if (!missing) break;
+    payload = payload.map(({ [missing]: _drop, ...rest }) => rest);
+    ({ error } = await supabase.from("recorridos").insert(payload));
+  }
+  if (error) throw error;
 }

@@ -20,9 +20,9 @@ import "leaflet/dist/leaflet.css";
 
 const CITY_FALLBACK = { lat: 19.4326, lng: -99.1332 };
 
-// Pin circular numerado: ámbar para el depósito (parada 1), teal para el resto.
+// Pin circular numerado: dorado de marca para el depósito (parada 1), teal para el resto.
 function numberedIcon(n, isDepot) {
-  const bg = isDepot ? "#f59e0b" : "#0d9488";
+  const bg = isDepot ? "#AD9551" : "#0d9488";
   const html = `
     <div style="
       background:${bg}; color:#0f172a; width:26px; height:26px; border-radius:9999px;
@@ -75,7 +75,7 @@ export default function RouteMap({ stops = [], closed = false, defaultCenter, de
     const latlngs = withCoords.map((s) => [s.lat, s.lng]);
     if (closed && latlngs.length > 1) latlngs.push(latlngs[0]);
     if (latlngs.length > 1) {
-      group.addLayer(L.polyline(latlngs, { color: "#f59e0b", weight: 3, opacity: 0.8, dashArray: "6 4" }));
+      group.addLayer(L.polyline(latlngs, { color: "#AD9551", weight: 3, opacity: 0.8, dashArray: "6 4" }));
     }
     group.addTo(map);
     layerRef.current = group;

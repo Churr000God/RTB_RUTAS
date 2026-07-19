@@ -19,11 +19,12 @@ import "leaflet/dist/leaflet.css";
 
 const CITY_FALLBACK = { lat: 19.4326, lng: -99.1332 };
 
-// Pin ámbar dibujado por CSS/SVG: evita el problema conocido de los
-// íconos PNG por defecto de Leaflet con bundlers (rutas de assets rotas).
+// Pin dorado (acento de marca, ver identidad_visual/RTB_sistema_visual.md)
+// dibujado por CSS/SVG: evita el problema conocido de los íconos PNG por
+// defecto de Leaflet con bundlers (rutas de assets rotas).
 const PIN_SVG = `
   <svg width="28" height="28" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 0C7.03 0 3 4.03 3 9c0 6.75 9 15 9 15s9-8.25 9-15c0-4.97-4.03-9-9-9z" fill="#f59e0b"/>
+    <path d="M12 0C7.03 0 3 4.03 3 9c0 6.75 9 15 9 15s9-8.25 9-15c0-4.97-4.03-9-9-9z" fill="#AD9551"/>
     <circle cx="12" cy="9" r="3.4" fill="#0f172a"/>
   </svg>`;
 const pinIcon = L.divIcon({

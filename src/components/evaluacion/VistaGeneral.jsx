@@ -17,9 +17,9 @@ export default function VistaGeneral({ evs }) {
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Recorridos evaluados</div>
           <div className="font-mono text-sm text-slate-200">{r.n}</div>
         </div>
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-2 py-2">
+        <div className="rounded-lg border border-rtb-gold-500/40 bg-rtb-gold-500/5 px-2 py-2">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Puntuación promedio</div>
-          <div className="font-mono text-sm text-amber-300">{r.promedio != null ? Math.round(r.promedio) : "—"}</div>
+          <div className="font-mono text-sm text-rtb-gold-300">{r.promedio != null ? Math.round(r.promedio) : "—"}</div>
         </div>
         <div className="rounded-lg border border-slate-800 bg-slate-950/50 px-2 py-2">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Tiempo desperdiciado (total)</div>

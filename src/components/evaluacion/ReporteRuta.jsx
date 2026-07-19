@@ -20,7 +20,23 @@ export default function ReporteRuta({ ev, driverNombre }) {
 
   return (
     <Card className="print-area p-4">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+      {/* Cabecera de marca — visible solo al imprimir/exportar PDF (el
+          reporte es la "cara al exterior" del sistema, ver §2.1 del
+          documento de mejoras transversales). En pantalla el reporte
+          sigue en el tema oscuro habitual. */}
+      <div className="print-brand-border mb-4 hidden items-center gap-3 border-b pb-3 print:flex">
+        <img src="/logo-rtb.png" alt="" className="h-12 w-12 shrink-0" />
+        <div>
+          <p className="print-brand-navy font-display text-sm font-bold">Refacciones Tomás Badillo, S.A. de C.V.</p>
+          <p className="print-brand-teal text-xs uppercase tracking-wider">Reporte de evaluación de ruta</p>
+        </div>
+        <div className="print-brand-navy ml-auto text-right text-xs">
+          <p className="font-semibold">{ev.date}</p>
+          <p>{driverNombre || "Sin asignar"}</p>
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3 print:hidden">
         <div>
           <h3 className="text-sm font-semibold text-slate-200">{ev.date} · {driverNombre || "Sin asignar"}</h3>
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
@@ -40,6 +56,16 @@ export default function ReporteRuta({ ev, driverNombre }) {
         </div>
       </div>
 
+      {/* Puntuación y metadatos — visibles siempre, pero solo llevan el
+          acento dorado de marca dentro del PDF (catch-all de impresión). */}
+      <div className="mb-4 hidden items-center justify-between print:flex">
+        <p className="print-brand-navy text-xs">
+          {ev.n} paradas · ruta {ev.closed ? "cerrada" : "abierta"}
+          {ev.estimado && " · baja confianza (tramos estimados)"}
+        </p>
+        <ScoreBadge score={ev.puntuacionFinal} etiqueta={ev.etiqueta} />
+      </div>
+
       <div className="mb-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
         <div className="rounded-lg border border-slate-800 bg-slate-950/50 px-2 py-2">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Manejo real</div>
@@ -55,7 +81,7 @@ export default function ReporteRuta({ ev, driverNombre }) {
             <div className="font-mono text-sm text-orange-300">{fmtMin(ev.totalBreak)}</div>
           </div>
         )}
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-2 py-2">
+        <div className="rounded-lg border border-rtb-gold-500/40 bg-rtb-gold-500/5 px-2 py-2 print-brand-surface print-brand-border">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Total ruta</div>
           <div className="font-mono text-sm text-violet-300">{fmtMin(totalRuta)}</div>
         </div>
@@ -72,7 +98,7 @@ export default function ReporteRuta({ ev, driverNombre }) {
           <SeqList names={ev.realNames} closed={ev.closed} />
         </div>
         <div>
-          <div className="mb-1 text-[11px] uppercase tracking-wider text-amber-400">Orden óptimo sugerido</div>
+          <div className="mb-1 text-[11px] uppercase tracking-wider text-rtb-gold-400">Orden óptimo sugerido</div>
           <SeqList names={ev.optNames} closed={ev.closed} />
         </div>
       </div>

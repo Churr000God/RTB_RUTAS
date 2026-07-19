@@ -26,7 +26,7 @@ export default function DispatchNoteBox({ driverId, driverNombre, state, onSendN
         <ul className="max-h-40 space-y-1.5 overflow-y-auto">
           {notes.map((n) => (
             <li key={n.id} className={`flex ${n.from === "driver" ? "justify-start" : "justify-end"}`}>
-              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-sky-500/15 text-sky-100" : "bg-amber-500/15 text-amber-100"}`}>
+              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-sky-500/15 text-sky-100" : "bg-rtb-gold-500/15 text-rtb-gold-100"}`}>
                 <p>{n.text}</p>
                 <p className="mt-0.5 text-[9px] text-slate-500">
                   {n.from === "driver" ? (driverNombre || "Chofer") : (n.byName || "Tú")} · {fmtTime(n.at)}
@@ -47,7 +47,7 @@ export default function DispatchNoteBox({ driverId, driverNombre, state, onSendN
         />
         <button
           onClick={send} disabled={!text.trim()}
-          className="shrink-0 rounded bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-40"
+          className="shrink-0 rounded bg-rtb-gold-500 px-2.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-rtb-gold-400 disabled:opacity-40"
           title="Enviar nota"
         >
           <Send size={12} />

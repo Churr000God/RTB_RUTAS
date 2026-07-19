@@ -81,7 +81,7 @@ export default function LiveStats({ state, allPoints, segments, waits }) {
           <span className="font-mono normal-case text-slate-400">{route.length}/{total || route.length}</span>
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-          <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
+          <div className="h-full rounded-full bg-rtb-gold-500 transition-all" style={{ width: `${pct}%` }} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

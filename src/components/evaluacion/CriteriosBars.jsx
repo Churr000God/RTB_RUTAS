@@ -22,8 +22,8 @@ export default function CriteriosBars({ criterios, detail = true }) {
               <span className="text-[10px] uppercase tracking-wider text-slate-500">{CRITERIO_LABEL[k]}</span>
               <span className="font-mono text-xs text-slate-200">{aplica && score != null ? Math.round(score) : "N/A"}</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-              <div className="h-full rounded-full bg-amber-500" style={{ width: `${aplica && score != null ? score : 0}%` }} />
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800 print-brand-surface print-brand-border border">
+              <div className="h-full rounded-full bg-rtb-gold-500 print-brand-gold-bg" style={{ width: `${aplica && score != null ? score : 0}%` }} />
             </div>
             {detail && isObj && raw.detail && <p className="mt-1 text-[10px] text-slate-500">{raw.detail}</p>}
           </div>

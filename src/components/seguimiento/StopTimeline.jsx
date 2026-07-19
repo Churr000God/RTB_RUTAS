@@ -22,9 +22,9 @@ export default function StopTimeline({ state }) {
           : null;
         const isCurrent = i === route.length - 1 && phase === "at-stop";
         return (
-          <li key={`v-${i}`} className={`flex flex-wrap items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${isCurrent ? "border-amber-500/50 bg-amber-500/10" : "border-teal-900/40 bg-teal-950/20"}`}>
-            <CheckCircle2 size={13} className={`shrink-0 ${isCurrent ? "text-amber-400" : "text-teal-400"}`} />
-            <span className={`flex-1 ${isCurrent ? "text-amber-200" : "text-teal-200"}`}>{s.name}</span>
+          <li key={`v-${i}`} className={`flex flex-wrap items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${isCurrent ? "border-rtb-gold-500/50 bg-rtb-gold-500/10" : "border-teal-900/40 bg-teal-950/20"}`}>
+            <CheckCircle2 size={13} className={`shrink-0 ${isCurrent ? "text-rtb-gold-400" : "text-teal-400"}`} />
+            <span className={`flex-1 ${isCurrent ? "text-rtb-gold-200" : "text-teal-200"}`}>{s.name}</span>
             <span className="font-mono text-[10px] text-slate-500">
               {fmtTime(s.arrivedAt)}{s.departedAt ? ` – ${fmtTime(s.departedAt)}` : isCurrent ? " · en parada" : ""}
             </span>

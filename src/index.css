@@ -1,3 +1,56 @@
+/* Tipografías de marca (identidad_visual/RTB_sistema_visual.md), autohospedadas
+   en public/fonts/ — sin depender de un CDN externo (la app corre en campo,
+   a veces con conexión pobre). Subset latino únicamente. */
+@font-face {
+  font-family: "Great Vibes";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/great-vibes-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Playfair Display";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/playfair-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Playfair Display";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/playfair-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter-700.woff2") format("woff2");
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,9 +61,39 @@ body { margin: 0; background: #020617; }
 /* Exportar a PDF (módulo de Evaluación de rutas): imprime solo el
    contenedor marcado .print-area (el reporte por ruta), ocultando el
    resto de la app (nav, tabs, otras tarjetas). El navegador ofrece
-   "Guardar como PDF" en el diálogo de impresión — sin dependencias. */
+   "Guardar como PDF" en el diálogo de impresión — sin dependencias.
+   El documento impreso adopta la identidad de marca (lienzo blanco,
+   navy/teal/oro) aunque en pantalla el reporte siga en tema oscuro:
+   es la "cara al exterior" del sistema (§2.1 del documento de mejoras). */
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .print-area {
+    position: absolute; left: 0; top: 0; width: 100%;
+    background: #FFFFFF !important;
+    color: #002B5B !important;
+    font-family: "Inter", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Neutraliza el tema oscuro del tablero (slate) Y las variantes de color
+     usadas para estados en pantalla (ámbar/cian/rosa/violeta/naranja de
+     ScoreBadge, CriteriosBars, stats) dentro del área impresa: catch-all
+     amplio por prefijo de clase de Tailwind, con !important (para no
+     depender del orden de generación de utilidades). Especificidad
+     `.print-area [attr]` = 2 clases — los acentos de marca de abajo usan
+     la misma especificidad (`.print-area .print-brand-*`) y ganan por
+     venir después en el archivo. */
+  .print-area [class*="bg-"]     { background-color: transparent !important; }
+  .print-area [class*="border-"] { border-color: #B8D8D6 !important; }
+  .print-area [class*="text-"]   { color: #002B5B !important; }
+
+  .print-area { background-color: #FFFFFF !important; }
+  .print-area .print-brand-navy    { color: #002B5B !important; }
+  .print-area .print-brand-teal    { color: #159895 !important; }
+  .print-area .print-brand-gold    { color: #AD9551 !important; }
+  .print-area .print-brand-surface { background-color: #EEF8F7 !important; }
+  .print-area .print-brand-gold-bg { background-color: #AD9551 !important; }
+  .print-area .print-brand-border  { border-color: #AD9551 !important; }
 }

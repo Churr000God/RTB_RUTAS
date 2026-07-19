@@ -51,9 +51,9 @@ export default function PlanEditor({ driverId, driverNombre, state, allPoints, o
             <li key={p.id}>
               <button
                 onClick={() => { onAddStop(driverId, driverNombre, p); setSearch(""); }}
-                className="flex w-full items-center gap-1.5 rounded border border-slate-800 bg-slate-900/60 px-2 py-1 text-left text-xs text-slate-300 hover:border-amber-500/40 hover:text-amber-200"
+                className="flex w-full items-center gap-1.5 rounded border border-slate-800 bg-slate-900/60 px-2 py-1 text-left text-xs text-slate-300 hover:border-rtb-gold-500/40 hover:text-rtb-gold-200"
               >
-                <Plus size={11} className="shrink-0 text-amber-400" /> {p.name}
+                <Plus size={11} className="shrink-0 text-rtb-gold-400" /> {p.name}
               </button>
             </li>
           ))}

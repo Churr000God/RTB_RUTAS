@@ -21,7 +21,7 @@ export default function VistaSemanal({ evs }) {
               <YAxis stroke="#64748b" fontSize={11} domain={[0, 100]} />
               <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }}
                 labelStyle={{ color: "#cbd5e1" }} />
-              <Line type="monotone" dataKey="promedio" stroke="#fbbf24" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Line type="monotone" dataKey="promedio" stroke="#AD9551" strokeWidth={2} dot={{ r: 3 }} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         </div>
