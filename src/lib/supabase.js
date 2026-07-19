@@ -14,6 +14,27 @@ if (!url || !anon) {
 
 export const supabase = createClient(url, anon);
 
+/** Invoca una Edge Function y propaga el mensaje real del cuerpo de error.
+ * Cuando la función responde no-2xx, supabase-js lanza un error genérico
+ * ("Edge Function returned a non-2xx status code") y deja el JSON real
+ * que la función mandó (`{ error: "..." }`, ver supabase/functions/*)
+ * colgado en `error.context` (un Response) sin leerlo — así que el
+ * mensaje específico (permiso, validación, correo duplicado, etc.) nunca
+ * llegaba a la UI. Esta función lo lee antes de propagar. */
+async function invokeFn(name, body) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    let message = error.message;
+    try {
+      const errBody = await error.context?.json?.();
+      if (errBody?.error) message = errBody.error;
+    } catch { /* cuerpo no-JSON o ya consumido: nos quedamos con el genérico */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 /* ------------------------------ Auth ------------------------------ */
 export async function getSession() {
   const { data } = await supabase.auth.getSession();
@@ -99,30 +120,18 @@ export async function updateProfile(userId, { nombre, role }) {
 
 /** Crea una cuenta (invitación por correo) + su fila en profiles. role: 'admin'|'supervisor'|'driver'. */
 export async function adminCrearUsuario({ nombre, email, role }) {
-  const { data, error } = await supabase.functions.invoke("admin-crear-usuario", {
-    body: { nombre, email, role, redirectTo: window.location.origin },
-  });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
+  const data = await invokeFn("admin-crear-usuario", { nombre, email, role, redirectTo: window.location.origin });
   return mapProfile(data.profile);
 }
 
 /** Dispara el correo de reseteo de contraseña de otro usuario. */
 export async function adminResetPassword(email) {
-  const { data, error } = await supabase.functions.invoke("admin-resetear-password", {
-    body: { email, redirectTo: window.location.origin },
-  });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
+  await invokeFn("admin-resetear-password", { email, redirectTo: window.location.origin });
 }
 
 /** Deshabilita (reversible) o rehabilita el acceso de un usuario. */
 export async function adminToggleUsuario(userId, disabled) {
-  const { data, error } = await supabase.functions.invoke("admin-toggle-usuario", {
-    body: { userId, disabled },
-  });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
+  const data = await invokeFn("admin-toggle-usuario", { userId, disabled });
   return mapProfile(data.profile);
 }
 

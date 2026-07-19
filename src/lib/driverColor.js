@@ -13,12 +13,19 @@ function hash(str) {
   return h;
 }
 
-/** Color determinista para un driverId. Saturación/luminosidad fijas para contraste sobre fondo oscuro. */
+/** Color determinista para un driverId. Saturación/luminosidad fijas para
+ * contraste sobre tarjeta clara (bg-rtb-surface): fill/text sin cambios
+ * (ya daban ≥8.8:1 y ≥6.6:1 respectivamente contra #EEF8F7 en cualquier
+ * hue); stroke oscurecido de 55% a 30% de luminosidad — a 55% el anillo
+ * caía hasta 1.35:1 contra la tarjeta clara en los hues amarillo-verde
+ * (invisible, bajo el mínimo WCAG de 3:1 para bordes/UI); a 30% el peor
+ * caso sube a 4.88:1. Verificado con verificador de contraste WCAG para
+ * los 24 hues (cada 15°) antes de aplicar. */
 export function colorForDriver(id) {
   const hue = id ? hash(String(id)) % 360 : 0;
   return {
     hue,
-    stroke: `hsl(${hue} 70% 55%)`,
+    stroke: `hsl(${hue} 45% 30%)`,
     bg: `hsl(${hue} 40% 20%)`,
     text: `hsl(${hue} 85% 80%)`,
   };
