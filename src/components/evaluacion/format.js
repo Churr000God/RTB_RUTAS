@@ -16,11 +16,11 @@ export function fmtScore(score) {
 }
 
 export const ETIQUETA_COLOR = {
-  Excelente: { text: "text-teal-300", bg: "bg-teal-900/40", border: "border-teal-700/50", bar: "bg-teal-500" },
-  Bien: { text: "text-sky-300", bg: "bg-sky-900/40", border: "border-sky-700/50", bar: "bg-sky-500" },
-  Regular: { text: "text-amber-300", bg: "bg-amber-900/40", border: "border-amber-700/50", bar: "bg-amber-500" },
-  Bajo: { text: "text-rose-300", bg: "bg-rose-900/40", border: "border-rose-700/50", bar: "bg-rose-500" },
-  "Sin datos": { text: "text-slate-400", bg: "bg-slate-800/60", border: "border-slate-700/50", bar: "bg-slate-600" },
+  Excelente: { text: "text-rtb-teal-700", bg: "bg-rtb-teal-50", border: "border-rtb-teal-200", bar: "bg-rtb-teal-500" },
+  Bien: { text: "text-sky-700", bg: "bg-sky-50", border: "border-sky-200", bar: "bg-sky-500" },
+  Regular: { text: "text-amber-700", bg: "bg-amber-50", border: "border-amber-200", bar: "bg-amber-500" },
+  Bajo: { text: "text-rose-700", bg: "bg-rose-50", border: "border-rose-200", bar: "bg-rose-500" },
+  "Sin datos": { text: "text-rtb-navy-mid", bg: "bg-slate-100", border: "border-slate-300", bar: "bg-slate-400" },
 };
 
 export const CRITERIO_LABEL = { ruteo: "Ruteo", entregas: "Entregas", esperas: "Esperas", ritmo: "Ritmo" };

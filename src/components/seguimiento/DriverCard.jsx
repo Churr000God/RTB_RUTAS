@@ -28,7 +28,7 @@ function phaseText(state) {
 }
 
 const Card = ({ children, className = "" }) => (
-  <div className={"rounded-xl border border-slate-800 bg-slate-900/70 " + className}>{children}</div>
+  <div className={"rounded-xl border border-rtb-teal-100 bg-rtb-surface " + className}>{children}</div>
 );
 
 export default function DriverCard({ driverId, driverNombre, state, allPoints, segments, waits, onLiberar, onAddStop, onRemoveStop, onReorder, onSendNote }) {
@@ -50,15 +50,15 @@ export default function DriverCard({ driverId, driverNombre, state, allPoints, s
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-slate-200">{driverNombre ?? "Chofer"}</span>
-              {done && <span className="rounded bg-teal-900/60 px-1.5 py-0.5 text-[10px] text-teal-300">Terminada</span>}
-              <span className="text-[10px] text-slate-500">{phaseText(state)}</span>
+              <span className="text-sm font-semibold text-rtb-navy">{driverNombre ?? "Chofer"}</span>
+              {done && <span className="rounded border border-rtb-teal-200 bg-rtb-teal-50 px-1.5 py-0.5 text-[10px] text-rtb-teal-700">Terminada</span>}
+              <span className="text-[10px] text-rtb-navy-mid">{phaseText(state)}</span>
             </div>
-            <p className="truncate text-xs text-slate-400">{title}</p>
+            <p className="truncate text-xs text-rtb-navy-mid">{title}</p>
           </div>
         </div>
         {!done && (
-          <button onClick={() => onLiberar(driverId)} className="shrink-0 text-slate-500 hover:text-rose-300" title="Liberar / cancelar">
+          <button onClick={() => onLiberar(driverId)} className="shrink-0 text-rtb-navy-mid hover:text-rose-700" title="Liberar / cancelar">
             <X size={16} />
           </button>
         )}
@@ -76,7 +76,7 @@ export default function DriverCard({ driverId, driverNombre, state, allPoints, s
 
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="mt-3 flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-400 transition hover:text-slate-200"
+        className="mt-3 flex w-full items-center justify-between rounded-lg border border-rtb-teal-100 bg-white px-3 py-2 text-xs text-rtb-navy-mid transition hover:text-rtb-navy"
       >
         <span className="flex items-center gap-1.5">
           Línea de tiempo{!done ? " · editar plan · mensajes" : ""}
@@ -95,7 +95,7 @@ export default function DriverCard({ driverId, driverNombre, state, allPoints, s
           {!done && (
             <>
               <div>
-                <h4 className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <h4 className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-rtb-navy-mid">
                   <Pencil size={11} /> Editar pendientes
                 </h4>
                 <PlanEditor
@@ -104,7 +104,7 @@ export default function DriverCard({ driverId, driverNombre, state, allPoints, s
                 />
               </div>
               <div>
-                <h4 className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <h4 className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-rtb-navy-mid">
                   <MessageSquare size={11} /> Mensajes con el chofer
                 </h4>
                 <DispatchNoteBox driverId={driverId} driverNombre={driverNombre} state={state} onSendNote={onSendNote} />

@@ -102,8 +102,8 @@ export default function DatosTab({ points, recorridos, rutasGuardadas = [], prof
   return (
     <div className="space-y-3">
       <Card className="p-4">
-        <h2 className="mb-1 text-sm font-semibold text-slate-200">Respaldo y migración</h2>
-        <p className="mb-4 text-xs text-slate-500">
+        <h2 className="mb-1 text-sm font-semibold text-rtb-navy">Respaldo y migración</h2>
+        <p className="mb-4 text-xs text-rtb-navy-mid">
           Exporta el JSON completo (puntos, recorridos, rutas guardadas y usuarios/roles) para respaldarlo en Nextcloud o migrar entre entornos.
           Importar es selectivo: eliges qué tipos reemplazar.
         </p>
@@ -115,13 +115,13 @@ export default function DatosTab({ points, recorridos, rutasGuardadas = [], prof
         </div>
         <div className="flex flex-wrap gap-2">
           <Btn variant="ghost" onClick={exportJSON} disabled={busy}><Download size={16} /> Exportar JSON</Btn>
-          <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 ${busy ? "pointer-events-none opacity-40" : ""}`}>
+          <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-rtb-navy/15 bg-white text-rtb-navy hover:bg-rtb-surface px-3 py-2 text-sm ${busy ? "pointer-events-none opacity-40" : ""}`}>
             <Upload size={16} /> Elegir archivo…
             <input type="file" accept="application/json" className="hidden" disabled={busy} onChange={pickFile} />
           </label>
           <Btn variant="danger" onClick={reset} disabled={busy}><Trash2 size={16} /> Borrar todo</Btn>
         </div>
-        <p className="mt-3 flex items-start gap-1.5 text-[11px] text-slate-600">
+        <p className="mt-3 flex items-start gap-1.5 text-[11px] text-slate-400">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           "Usuarios y roles" solo actualiza nombre/rol de cuentas que ya existen — las cuentas nuevas se crean en la pestaña Usuarios (envían invitación por correo), un respaldo no las recrea.
         </p>
@@ -129,23 +129,23 @@ export default function DatosTab({ points, recorridos, rutasGuardadas = [], prof
 
       {pending && (
         <Card className="p-4">
-          <h3 className="mb-1 text-sm font-semibold text-slate-200">Restaurar respaldo</h3>
-          <p className="mb-3 text-xs text-slate-500">Marca qué tipos de dato quieres reemplazar con el contenido del archivo elegido.</p>
+          <h3 className="mb-1 text-sm font-semibold text-rtb-navy">Restaurar respaldo</h3>
+          <p className="mb-3 text-xs text-rtb-navy-mid">Marca qué tipos de dato quieres reemplazar con el contenido del archivo elegido.</p>
           <div className="mb-4 space-y-2">
             {Object.keys(TIPO_LABEL).map((tipo) => {
               const disponible = pending.data[tipo] != null;
               const count = Array.isArray(pending.data[tipo]) ? pending.data[tipo].length : 0;
               return (
-                <label key={tipo} className={`flex items-center gap-2 text-sm ${disponible ? "text-slate-200" : "text-slate-600"}`}>
+                <label key={tipo} className={`flex items-center gap-2 text-sm ${disponible ? "text-rtb-navy" : "text-slate-400"}`}>
                   <input
                     type="checkbox"
-                    className="accent-rtb-gold-500"
+                    className="accent-rtb-teal"
                     checked={!!pending.selected[tipo]}
                     disabled={!disponible}
                     onChange={() => toggleTipo(tipo)}
                   />
                   {TIPO_LABEL[tipo]}
-                  {disponible ? <span className="font-mono text-xs text-slate-500">({count})</span> : <span className="text-xs text-slate-700">no incluido en el archivo</span>}
+                  {disponible ? <span className="font-mono text-xs text-rtb-navy-mid">({count})</span> : <span className="text-xs text-slate-400">no incluido en el archivo</span>}
                 </label>
               );
             })}

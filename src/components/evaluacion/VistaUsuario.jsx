@@ -13,9 +13,9 @@ export default function VistaUsuario({ evs, profiles }) {
       {grupos.map((g) => (
         <Card key={g.driverId ?? "sin-asignar"} className="p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-200">{g.nombre}</h3>
+            <h3 className="text-sm font-semibold text-rtb-navy">{g.nombre}</h3>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">{g.n} recorrido{g.n === 1 ? "" : "s"}</span>
+              <span className="text-xs text-rtb-navy-mid">{g.n} recorrido{g.n === 1 ? "" : "s"}</span>
               <ScoreBadge score={g.promedio} etiqueta={etiquetaFor(g.promedio)} />
             </div>
           </div>

@@ -13,10 +13,10 @@ import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 const ToastContext = createContext(null);
 
 const TOAST_META = {
-  success: { icon: CheckCircle2, cls: "border-rtb-teal/40 bg-rtb-teal-950/90 text-rtb-teal-200" },
-  error:   { icon: AlertTriangle, cls: "border-rose-700/50 bg-rose-950/90 text-rose-200" },
-  warn:    { icon: AlertTriangle, cls: "border-rtb-gold-600/50 bg-rtb-gold-950/90 text-rtb-gold-200" },
-  info:    { icon: Info,          cls: "border-slate-700 bg-slate-900/95 text-slate-200" },
+  success: { icon: CheckCircle2, cls: "border-rtb-teal-200 bg-rtb-teal-50 text-rtb-teal-800" },
+  error:   { icon: AlertTriangle, cls: "border-rose-300 bg-rose-50 text-rose-800" },
+  warn:    { icon: AlertTriangle, cls: "border-orange-300 bg-orange-50 text-orange-800" },
+  info:    { icon: Info,          cls: "border-rtb-teal-100 bg-white text-rtb-navy" },
 };
 
 /** Hook para disparar avisos efímeros: toast("Guardado", { type: "success" }). */
@@ -60,18 +60,18 @@ function ConfirmModal({ state, onResolve }) {
   if (!state) return null;
   const { title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", danger = false } = state;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm" onClick={() => onResolve(false)}>
-      <div className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        {title && <h3 className="mb-1.5 text-sm font-semibold text-slate-100">{title}</h3>}
-        <p className="mb-4 whitespace-pre-line text-sm text-slate-400">{message}</p>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-rtb-navy/40 px-4 backdrop-blur-sm" onClick={() => onResolve(false)}>
+      <div className="w-full max-w-sm rounded-xl border border-rtb-teal-100 bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {title && <h3 className="mb-1.5 font-display text-sm font-semibold text-rtb-navy">{title}</h3>}
+        <p className="mb-4 whitespace-pre-line text-sm text-rtb-navy-mid">{message}</p>
         <div className="flex justify-end gap-2">
           <button onClick={() => onResolve(false)}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-700">
+            className="rounded-lg border border-rtb-navy/15 bg-white px-3 py-2 text-sm text-rtb-navy transition hover:bg-rtb-surface">
             {cancelLabel}
           </button>
           <button onClick={() => onResolve(true)}
-            className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-              danger ? "bg-rose-700 text-white hover:bg-rose-600" : "bg-rtb-gold-500 text-slate-950 hover:bg-rtb-gold-400"
+            className={`rounded-lg px-3 py-2 text-sm font-semibold text-white transition ${
+              danger ? "bg-rose-600 hover:bg-rose-500" : "bg-rtb-teal hover:bg-rtb-navy"
             }`}>
             {confirmLabel}
           </button>

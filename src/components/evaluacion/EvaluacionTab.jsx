@@ -60,7 +60,7 @@ export default function EvaluacionTab({ points, recorridos, profiles }) {
     return <Card className="p-6"><Empty>Registra recorridos para poder evaluarlos.</Empty></Card>;
   }
   if (allEvs.length === 0) {
-    return <Card className="p-6"><Empty>Aún no hay recorridos evaluables. Se necesitan recorridos de <span className="text-rtb-gold-400">3 paradas o más</span>.</Empty></Card>;
+    return <Card className="p-6"><Empty>Aún no hay recorridos evaluables. Se necesitan recorridos de <span className="text-rtb-gold-700">3 paradas o más</span>.</Empty></Card>;
   }
 
   return (
@@ -70,13 +70,13 @@ export default function EvaluacionTab({ points, recorridos, profiles }) {
           <div className="flex flex-1 flex-wrap gap-1.5">
             {VIEWS.map((v) => (
               <button key={v.id} onClick={() => setView(v.id)}
-                className={`rounded-lg px-3 py-1.5 text-xs transition ${view === v.id ? "bg-rtb-gold-500 font-semibold text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>
+                className={`rounded-lg px-3 py-1.5 text-xs transition ${view === v.id ? "bg-rtb-teal font-semibold text-white" : "bg-rtb-surface text-rtb-navy-mid hover:bg-rtb-teal-50"}`}>
                 {v.label}
               </button>
             ))}
           </div>
           <select value={periodo} onChange={(e) => setPeriodo(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200">
+            className="rounded-lg border border-rtb-navy/15 bg-white px-2 py-1.5 text-xs text-rtb-navy">
             {PERIODOS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </div>
@@ -87,9 +87,9 @@ export default function EvaluacionTab({ points, recorridos, profiles }) {
       ) : view === "ruta" ? (
         <div className="space-y-3">
           <Card className="p-3">
-            <label className="mb-1 block text-[11px] uppercase tracking-wider text-slate-500">Recorrido</label>
+            <label className="mb-1 block text-[11px] uppercase tracking-wider text-rtb-navy-mid">Recorrido</label>
             <select value={selected?.id || ""} onChange={(e) => setSelectedId(e.target.value)}
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
+              className="w-full rounded-lg border border-rtb-navy/15 bg-white px-2 py-1.5 text-sm text-rtb-navy">
               {periodEvs.slice().reverse().map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.date} · {nombreDeChofer(e.driverId)} · {e.etiqueta} ({e.puntuacionFinal != null ? Math.round(e.puntuacionFinal) : "—"})

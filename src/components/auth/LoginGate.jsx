@@ -24,7 +24,13 @@ const linkBtnCls = "w-full text-center text-xs text-rtb-navy-mid transition hove
  * hero" en la guía). */
 function BrandCanvas({ children }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-rtb-teal-light/20 via-white to-white px-4 font-sans">
+    <div
+      className="flex min-h-screen items-center justify-center px-4 font-sans"
+      style={{
+        background:
+          "radial-gradient(150% 135% at 50% -30%, #57C5B6 0%, #57C5B6 22%, rgba(87,197,182,.82) 36%, rgba(87,197,182,.60) 48%, rgba(87,197,182,.40) 60%, rgba(87,197,182,.24) 71%, rgba(87,197,182,.12) 81%, rgba(87,197,182,.05) 90%, rgba(255,255,255,0) 100%), #FFFFFF",
+      }}
+    >
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <img src="/logo-rtb.png" alt="Refacciones Tomás Badillo" className="mx-auto mb-3 h-20 w-20" />

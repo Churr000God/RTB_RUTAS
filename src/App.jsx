@@ -422,7 +422,7 @@ function AppInner() {
     ? allTabs.filter((t) => t.id === "ruta-dia")
     : allTabs.filter((t) => t.roles.includes(role));
 
-  if (!loaded) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-500">Cargando…</div>;
+  if (!loaded) return <div className="flex min-h-screen items-center justify-center bg-rtb-white text-rtb-navy-mid">Cargando…</div>;
   if (session && needsPassword) {
     return <SetPasswordGate onDone={() => {
       setNeedsPassword(false);
@@ -432,42 +432,42 @@ function AppInner() {
   if (!session) return <LoginGate />;
 
   return (
-    <div className="min-h-screen bg-slate-950 font-sans text-slate-100">
+    <div className="min-h-screen bg-rtb-white font-sans text-rtb-navy">
       <div className="mx-auto max-w-5xl px-4 py-6">
         <header className="mb-6 flex items-center gap-3">
           <img src="/logo-rtb-nav.png" alt="RTB" className="h-11 w-11 shrink-0" />
           <div>
-            <h1 className="text-lg font-bold leading-tight">Despacho RTB · Optimizador de Rutas</h1>
-            <p className="text-xs text-slate-500">
+            <h1 className="font-display text-lg font-bold leading-tight text-rtb-navy">Despacho RTB · Optimizador de Rutas</h1>
+            <p className="text-xs text-rtb-navy-mid">
               {profile
-                ? <>{isAdmin ? <ShieldCheck size={11} className="inline mr-0.5 text-rtb-gold-400" /> : null}{profile.nombre} · {isAdmin ? "Admin" : isSupervisor ? "Supervisor" : "Chofer"}</>
+                ? <>{isAdmin ? <ShieldCheck size={11} className="inline mr-0.5 text-rtb-gold-600" /> : null}{profile.nombre} · {isAdmin ? "Admin" : isSupervisor ? "Supervisor" : "Chofer"}</>
                 : "Aprende tiempos reales, optimiza y mide cuánto estás ahorrando"}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-4">
             {isStaff && (
-              <div className="hidden text-right text-xs text-slate-500 sm:block">
-                <div><span className="font-mono text-slate-300">{points.length}</span> puntos</div>
-                <div><span className="font-mono text-slate-300">{recorridos.length}</span> recorridos</div>
+              <div className="hidden text-right text-xs text-rtb-navy-mid sm:block">
+                <div><span className="font-mono tabular-nums text-rtb-navy">{points.length}</span> puntos</div>
+                <div><span className="font-mono tabular-nums text-rtb-navy">{recorridos.length}</span> recorridos</div>
               </div>
             )}
-            <button onClick={signOut} title="Cerrar sesión" className="text-slate-500 hover:text-slate-300"><LogOut size={18} /></button>
+            <button onClick={signOut} title="Cerrar sesión" className="text-rtb-navy-mid hover:text-rtb-navy"><LogOut size={18} /></button>
           </div>
         </header>
 
         {tabs.length > 1 && (
-          <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-slate-800 bg-slate-900/50 p-1">
+          <nav className="mb-6 flex flex-wrap gap-1 rounded-xl border border-rtb-teal-100 bg-rtb-surface p-1">
             {tabs.map((t) => {
               const Icon = t.icon;
               const hasActive = t.id === "ruta-dia" && rutaDia && !rutaDia.done;
               const monitorCount = t.id === "seguimiento" ? Object.keys(activeRoutes).length : 0;
               return (
                 <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition ${tab === t.id ? "bg-slate-800 text-rtb-gold-400" : "text-slate-400 hover:text-slate-200"}`}>
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition ${tab === t.id ? "bg-white text-rtb-navy font-semibold shadow-sm" : "text-rtb-navy-mid hover:text-rtb-navy"}`}>
                   <Icon size={15} /> {t.label}
-                  {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-rtb-gold-400" />}
+                  {hasActive && <span className="h-1.5 w-1.5 rounded-full bg-rtb-gold-500" />}
                   {monitorCount > 0 && (
-                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-teal-600 px-1 text-[10px] font-bold text-white">{monitorCount}</span>
+                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rtb-teal px-1 text-[10px] font-bold text-white">{monitorCount}</span>
                   )}
                 </button>
               );

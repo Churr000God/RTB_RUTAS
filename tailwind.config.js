@@ -33,6 +33,7 @@ export default {
         // Titulares (Playfair) y cuerpo/datos (Inter) — ver @font-face en index.css.
         display: ['"Playfair Display"', "Georgia", "serif"],
         script: ['"Great Vibes"', "cursive"],
+        sans: ['"Inter"', "system-ui", "sans-serif"],
       },
     },
   },

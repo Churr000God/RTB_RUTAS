@@ -56,7 +56,7 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { margin: 0; background: #020617; }
+body { margin: 0; background: #FFFFFF; }
 
 /* Exportar a PDF (módulo de Evaluación de rutas): imprime solo el
    contenedor marcado .print-area (el reporte por ruta), ocultando el

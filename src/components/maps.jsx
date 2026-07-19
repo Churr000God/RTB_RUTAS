@@ -11,7 +11,7 @@ export const LeafletMap = lazy(() => import("./LeafletMap"));
 export const RouteMap = lazy(() => import("./RouteMap"));
 
 export const MapFallback = ({ className }) => (
-  <div className={`flex items-center justify-center bg-slate-950/50 text-xs text-slate-500 ${className || ""}`}>
+  <div className={`flex items-center justify-center bg-white text-xs text-rtb-navy-mid ${className || ""}`}>
     Cargando mapa…
   </div>
 );

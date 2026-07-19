@@ -26,9 +26,9 @@ export default function DispatchNoteBox({ driverId, driverNombre, state, onSendN
         <ul className="max-h-40 space-y-1.5 overflow-y-auto">
           {notes.map((n) => (
             <li key={n.id} className={`flex ${n.from === "driver" ? "justify-start" : "justify-end"}`}>
-              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-sky-500/15 text-sky-100" : "bg-rtb-gold-500/15 text-rtb-gold-100"}`}>
+              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-sky-50 text-sky-700" : "bg-rtb-gold-50 text-rtb-gold-700"}`}>
                 <p>{n.text}</p>
-                <p className="mt-0.5 text-[9px] text-slate-500">
+                <p className="mt-0.5 text-[9px] text-rtb-navy-mid">
                   {n.from === "driver" ? (driverNombre || "Chofer") : (n.byName || "Tú")} · {fmtTime(n.at)}
                 </p>
               </div>
@@ -36,18 +36,18 @@ export default function DispatchNoteBox({ driverId, driverNombre, state, onSendN
           ))}
         </ul>
       ) : (
-        <p className="text-[11px] text-slate-600">Sin mensajes todavía.</p>
+        <p className="text-[11px] text-slate-400">Sin mensajes todavía.</p>
       )}
       <div className="flex gap-1.5">
         <input
           value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") send(); }}
           placeholder="Nota para el chofer…"
-          className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600"
+          className="flex-1 rounded border border-rtb-navy/15 bg-white px-2 py-1.5 text-xs text-rtb-navy placeholder:text-rtb-navy/35"
         />
         <button
           onClick={send} disabled={!text.trim()}
-          className="shrink-0 rounded bg-rtb-gold-500 px-2.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-rtb-gold-400 disabled:opacity-40"
+          className="shrink-0 rounded bg-rtb-teal px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-rtb-navy disabled:opacity-40"
           title="Enviar nota"
         >
           <Send size={12} />

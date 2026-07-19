@@ -132,19 +132,19 @@ export default function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunt
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_1.2fr]">
       <Card className="p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-200">
+        <h2 className="mb-3 text-sm font-semibold text-rtb-navy">
           {editId ? "Editar punto" : "Nuevo punto"}
         </h2>
         <div className="space-y-3">
           <Field label="Nombre">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Almacén / Cliente / Sucursal" />
           </Field>
-          {nameTaken && <p className="text-xs text-rose-400">Ya existe un punto con ese nombre.</p>}
+          {nameTaken && <p className="text-xs text-rose-700">Ya existe un punto con ese nombre.</p>}
           <Field label="Tipo">
             <div className="flex gap-1">
               {Object.entries(TYPE_META).map(([k, v]) => (
                 <button key={k} onClick={() => setType(k)}
-                  className={`flex-1 rounded-lg border px-2 py-2 text-xs ${type === k ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-300" : "border-slate-700 text-slate-400"}`}>
+                  className={`flex-1 rounded-lg border px-2 py-2 text-xs ${type === k ? "border-rtb-gold-300 bg-rtb-gold-50 text-rtb-gold-700" : "border-rtb-navy/15 text-rtb-navy-mid"}`}>
                   {v.label}
                 </button>
               ))}
@@ -164,7 +164,7 @@ export default function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunt
               onPick={(la, ln) => { setLat(la.toFixed(6)); setLng(ln.toFixed(6)); }}
             />
           </Suspense>
-          <p className="text-xs text-slate-500">Coordenadas opcionales: haz clic en el mapa o arrastra el pin para fijarlas; también puedes teclearlas.</p>
+          <p className="text-xs text-rtb-navy-mid">Coordenadas opcionales: haz clic en el mapa o arrastra el pin para fijarlas; también puedes teclearlas.</p>
           <Field label="Dirección (opcional)">
             <div className="flex gap-2">
               <input className={inputCls} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Calle, número, colonia…" />
@@ -172,9 +172,9 @@ export default function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunt
                 <Compass size={14} /> {geocoding ? "Buscando…" : "Obtener dirección"}
               </Btn>
             </div>
-            {!hasValidCoords && <p className="mt-1 text-[11px] text-slate-600">Fija coordenadas para poder obtenerla automáticamente.</p>}
+            {!hasValidCoords && <p className="mt-1 text-[11px] text-slate-400">Fija coordenadas para poder obtenerla automáticamente.</p>}
           </Field>
-          {err && <p className="text-xs text-rose-400">{err}</p>}
+          {err && <p className="text-xs text-rose-700">{err}</p>}
           <div className="flex gap-2">
             {editId && (
               <Btn variant="ghost" onClick={cancelEdit} className="flex-1 justify-center">
@@ -189,10 +189,10 @@ export default function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunt
       </Card>
 
       <Card className="p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-200">Puntos registrados</h2>
+        <h2 className="mb-3 text-sm font-semibold text-rtb-navy">Puntos registrados</h2>
         {points.length > 0 && (
           <div className="relative mb-3">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-rtb-navy-mid pointer-events-none" />
             <input
               className={inputCls + " pl-8"}
               placeholder="Buscar punto…"
@@ -202,60 +202,60 @@ export default function PuntosTab({ points, recorridos, onAddPunto, onUpdatePunt
           </div>
         )}
         {points.length === 0 ? (
-          <Empty>Aún no hay puntos. Agrega tu almacén como <span className="text-rtb-gold-400">Depósito</span> y tus clientes.</Empty>
+          <Empty>Aún no hay puntos. Agrega tu almacén como <span className="text-rtb-gold-700">Depósito</span> y tus clientes.</Empty>
         ) : filtered.length === 0 ? (
-          <Empty>Sin resultados para <span className="text-slate-300">"{search}"</span>.</Empty>
+          <Empty>Sin resultados para <span className="text-rtb-navy">"{search}"</span>.</Empty>
         ) : (
           <ul className="max-h-[28rem] space-y-1.5 overflow-y-auto pr-1">
             {filtered.map((p) => (
               <li key={p.id}
-                className={`rounded-lg border bg-slate-950/50 transition ${editId === p.id ? "border-rtb-gold-500/50 bg-rtb-gold-500/5" : "border-slate-800"}`}>
+                className={`rounded-lg border bg-white transition ${editId === p.id ? "border-rtb-gold-300 bg-rtb-gold-50" : "border-rtb-teal-100"}`}>
                 <div role="button" tabIndex={0}
                   onClick={() => setExpandedId((cur) => cur === p.id ? null : p.id)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedId((cur) => cur === p.id ? null : p.id); } }}
                   className="flex cursor-pointer items-center gap-3 px-3 py-2">
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-slate-200">{p.name}</div>
-                    <div className="text-[11px] text-slate-500">
+                    <div className="truncate text-sm text-rtb-navy">{p.name}</div>
+                    <div className="text-[11px] text-rtb-navy-mid">
                       {TYPE_META[p.type].label}
                       {p.lat != null && p.lng != null && <span className="font-mono"> · {p.lat.toFixed(4)}, {p.lng.toFixed(4)}</span>}
                     </div>
                   </div>
                   <ChevronDown size={15}
-                    className={`shrink-0 transition ${expandedId === p.id ? "rotate-180 text-rtb-gold-400" : "text-slate-600"}`} />
+                    className={`shrink-0 transition ${expandedId === p.id ? "rotate-180 text-rtb-gold-700" : "text-slate-400"}`} />
                   <button onClick={(e) => { e.stopPropagation(); editId === p.id ? cancelEdit() : startEdit(p); }}
-                    className={`shrink-0 transition ${editId === p.id ? "text-rtb-gold-400" : "text-slate-600 hover:text-rtb-gold-400"}`}>
+                    className={`shrink-0 transition ${editId === p.id ? "text-rtb-gold-700" : "text-slate-400 hover:text-rtb-gold-700"}`}>
                     <Pencil size={14} />
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); remove(p.id); }} className="shrink-0 text-slate-600 hover:text-rose-400">
+                  <button onClick={(e) => { e.stopPropagation(); remove(p.id); }} className="shrink-0 text-slate-400 hover:text-rose-700">
                     <Trash2 size={15} />
                   </button>
                 </div>
                 {expandedId === p.id && (
-                  <div className="space-y-2 border-t border-slate-800 px-3 py-3">
-                    {p.direccion && <p className="text-xs text-slate-400">{p.direccion}</p>}
+                  <div className="space-y-2 border-t border-rtb-teal-100 px-3 py-3">
+                    {p.direccion && <p className="text-xs text-rtb-navy-mid">{p.direccion}</p>}
                     {p.lat != null && p.lng != null ? (
                       <>
                         <Suspense fallback={<MapFallback className="h-40 w-full rounded-lg" />}>
                           <LeafletMap className="h-40 w-full overflow-hidden rounded-lg" lat={p.lat} lng={p.lng} />
                         </Suspense>
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-mono text-slate-400">{p.lat.toFixed(6)}, {p.lng.toFixed(6)}</span>
-                          <button onClick={() => copyCoords(p)} className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-300">
+                          <span className="font-mono text-rtb-navy-mid">{p.lat.toFixed(6)}, {p.lng.toFixed(6)}</span>
+                          <button onClick={() => copyCoords(p)} className="inline-flex items-center gap-1 text-rtb-navy-mid hover:text-rtb-navy">
                             <Copy size={12} /> Copiar
                           </button>
                         </div>
                         <a href={googleMapsUrl(p)} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 hover:bg-slate-700">
+                          className="flex items-center justify-center gap-1.5 rounded-lg border border-rtb-navy/15 bg-white text-rtb-navy hover:bg-rtb-surface px-3 py-2 text-xs">
                           <ExternalLink size={13} /> Ver ubicación en Google Maps
                         </a>
                       </>
                     ) : (
                       <div className="space-y-2">
-                        <p className="text-xs text-slate-500">Este punto no tiene coordenadas registradas.</p>
+                        <p className="text-xs text-rtb-navy-mid">Este punto no tiene coordenadas registradas.</p>
                         <div className="flex items-center gap-2">
-                          <span className="flex flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-600">
+                          <span className="flex flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-rtb-teal-100 bg-slate-100 px-3 py-2 text-xs text-slate-400">
                             <ExternalLink size={13} /> Ver ubicación en Google Maps
                           </span>
                           <Btn variant="ghost" onClick={() => startEdit(p)} className="justify-center text-xs">

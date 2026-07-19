@@ -17,9 +17,9 @@ const SUPERADMIN_ID = "5ecb861d-7d41-4d01-a916-72eb1c2b1817";
    deshabilitar/habilitar cuentas
    ============================================================ */
 const ROLE_META = {
-  admin:      { label: "Administrador", badge: "bg-rtb-gold-900/40 text-rtb-gold-300" },
-  supervisor: { label: "Supervisor",    badge: "bg-sky-900/40 text-sky-300" },
-  driver:     { label: "Chofer",        badge: "bg-slate-800 text-slate-400" },
+  admin:      { label: "Administrador", badge: "bg-rtb-gold-50 text-rtb-gold-700" },
+  supervisor: { label: "Supervisor",    badge: "bg-sky-50 text-sky-700" },
+  driver:     { label: "Chofer",        badge: "bg-slate-100 text-slate-400" },
 };
 
 function NuevoUsuarioForm({ onCrear, onClose }) {
@@ -42,8 +42,8 @@ function NuevoUsuarioForm({ onCrear, onClose }) {
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-2">
-        <UserPlus size={14} className="text-rtb-gold-400" />
-        <span className="text-sm font-semibold text-slate-200">Nuevo usuario</span>
+        <UserPlus size={14} className="text-rtb-gold-700" />
+        <span className="text-sm font-semibold text-rtb-navy">Nuevo usuario</span>
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
         <Field label="Nombre">
@@ -60,8 +60,8 @@ function NuevoUsuarioForm({ onCrear, onClose }) {
           </select>
         </Field>
       </div>
-      <p className="mt-2 text-[11px] text-slate-500">Se envía un correo de invitación; la persona define su propia contraseña al abrirlo.</p>
-      {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+      <p className="mt-2 text-[11px] text-rtb-navy-mid">Se envía un correo de invitación; la persona define su propia contraseña al abrirlo.</p>
+      {err && <p className="mt-2 text-xs text-rose-700">{err}</p>}
       <div className="mt-3 flex gap-2">
         <Btn onClick={submit} disabled={busy || !nombre.trim() || !email.trim()} className="py-1 px-3 text-xs">
           <Mail size={12} /> {busy ? "Enviando invitación…" : "Invitar"}
@@ -138,8 +138,8 @@ export default function UsuariosTab({ profiles, currentUserId, onUpdate, onCrear
 
       {profiles.length === 0 && (
         <Card className="p-8 text-center">
-          <UserCog size={36} className="mx-auto mb-3 text-slate-600" />
-          <p className="text-sm text-slate-400">No hay perfiles registrados.</p>
+          <UserCog size={36} className="mx-auto mb-3 text-slate-400" />
+          <p className="text-sm text-rtb-navy-mid">No hay perfiles registrados.</p>
         </Card>
       )}
 
@@ -156,10 +156,10 @@ export default function UsuariosTab({ profiles, currentUserId, onUpdate, onCrear
             {ed ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <UserCog size={14} className="text-rtb-gold-400" />
-                  <span className="text-xs text-slate-400 font-mono">{p.userId.slice(0, 8)}…</span>
-                  {isMe && <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">tú</span>}
-                  {isSuperAdmin && <span className="rounded bg-rtb-gold-900/50 px-1.5 py-0.5 text-[10px] text-rtb-gold-300">acceso maestro</span>}
+                  <UserCog size={14} className="text-rtb-gold-700" />
+                  <span className="text-xs text-rtb-navy-mid font-mono">{p.userId.slice(0, 8)}…</span>
+                  {isMe && <span className="rounded bg-rtb-teal-50 px-1.5 py-0.5 text-[10px] text-rtb-navy-mid">tú</span>}
+                  {isSuperAdmin && <span className="rounded bg-rtb-gold-50 px-1.5 py-0.5 text-[10px] text-rtb-gold-700">acceso maestro</span>}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Field label="Nombre">
@@ -172,8 +172,8 @@ export default function UsuariosTab({ profiles, currentUserId, onUpdate, onCrear
                   <Field label="Rol">
                     {isSuperAdmin ? (
                       <div className={inputCls + " flex items-center gap-2 cursor-not-allowed opacity-60"}>
-                        <span className="flex-1 text-rtb-gold-300">admin — Administrador</span>
-                        <span className="text-[10px] text-slate-500">bloqueado</span>
+                        <span className="flex-1 text-rtb-gold-700">admin — Administrador</span>
+                        <span className="text-[10px] text-rtb-navy-mid">bloqueado</span>
                       </div>
                     ) : (
                       <select
@@ -199,17 +199,17 @@ export default function UsuariosTab({ profiles, currentUserId, onUpdate, onCrear
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-slate-200">{p.nombre}</span>
-                    {isMe && <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">tú</span>}
-                    {isSuperAdmin && <span className="rounded bg-rtb-gold-900/50 px-1.5 py-0.5 text-[10px] text-rtb-gold-300">acceso maestro</span>}
-                    {p.disabled && <span className="rounded bg-rose-950 px-1.5 py-0.5 text-[10px] text-rose-300">deshabilitado</span>}
-                    {isSaved && <CheckCircle2 size={13} className="text-teal-400" />}
+                    <span className="text-sm font-semibold text-rtb-navy">{p.nombre}</span>
+                    {isMe && <span className="rounded bg-rtb-teal-50 px-1.5 py-0.5 text-[10px] text-rtb-navy-mid">tú</span>}
+                    {isSuperAdmin && <span className="rounded bg-rtb-gold-50 px-1.5 py-0.5 text-[10px] text-rtb-gold-700">acceso maestro</span>}
+                    {p.disabled && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] text-rose-700">deshabilitado</span>}
+                    {isSaved && <CheckCircle2 size={13} className="text-rtb-teal-700" />}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-rtb-navy-mid">
                     <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${roleMeta.badge}`}>{p.role}</span>
-                    {isSuperAdmin && <span className="text-slate-600">rol permanente</span>}
-                    {p.email && <span className="text-slate-600">{p.email}</span>}
-                    {msg[p.userId] && <span className="text-teal-400">{msg[p.userId]}</span>}
+                    {isSuperAdmin && <span className="text-slate-400">rol permanente</span>}
+                    {p.email && <span className="text-slate-400">{p.email}</span>}
+                    {msg[p.userId] && <span className="text-rtb-teal-700">{msg[p.userId]}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -220,12 +220,12 @@ export default function UsuariosTab({ profiles, currentUserId, onUpdate, onCrear
                   )}
                   {!isSuperAdmin && !isMe && (
                     <Btn variant="ghost" onClick={() => toggle(p)} disabled={!!busy}
-                      className={`py-1 px-2 text-xs ${p.disabled ? "text-teal-400" : "text-rose-300"}`}
+                      className={`py-1 px-2 text-xs ${p.disabled ? "text-rtb-teal-700" : "text-rose-700"}`}
                       title={p.disabled ? "Rehabilitar" : "Deshabilitar"}>
                       <Ban size={13} /> {busy === "toggle" ? "…" : ""}
                     </Btn>
                   )}
-                  <Btn variant="ghost" onClick={() => startEdit(p)} className="py-1 px-2 text-slate-400 hover:text-slate-200">
+                  <Btn variant="ghost" onClick={() => startEdit(p)} className="py-1 px-2 text-slate-400 hover:text-rtb-navy">
                     <Pencil size={13} />
                   </Btn>
                 </div>

@@ -95,30 +95,30 @@ export default function RegistrarTab({ points, onAddRecorrido }) {
     } finally { setBusy(false); }
   };
 
-  if (points.length < 2) return <Card className="p-6"><Empty>Necesitas al menos 2 puntos. Créalos en <span className="text-rtb-gold-400">Puntos</span>.</Empty></Card>;
+  if (points.length < 2) return <Card className="p-6"><Empty>Necesitas al menos 2 puntos. Créalos en <span className="text-rtb-gold-700">Puntos</span>.</Empty></Card>;
 
   return (
     <div className="space-y-4">
       {/* Lista de borradores */}
       {drafts.length > 0 && (
         <Card className="p-4">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <FileText size={15} className="text-slate-400" /> Borradores guardados
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-rtb-navy">
+            <FileText size={15} className="text-rtb-navy-mid" /> Borradores guardados
           </h2>
           <ul className="space-y-2">
             {drafts.map((d) => {
               const isActive = activeDraftId === d.id;
               return (
                 <li key={d.id}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition ${isActive ? "border-rtb-gold-500/50 bg-rtb-gold-500/5" : "border-slate-800 bg-slate-950/50"}`}>
-                  <FileText size={14} className={isActive ? "text-rtb-gold-400 shrink-0" : "text-slate-600 shrink-0"} />
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition ${isActive ? "border-rtb-gold-300 bg-rtb-gold-50" : "border-rtb-teal-100 bg-white"}`}>
+                  <FileText size={14} className={isActive ? "text-rtb-gold-700 shrink-0" : "text-slate-400 shrink-0"} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-200">{d.dateISO}</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">{d.seq.length} paradas</span>
-                      {isActive && <span className="rounded bg-rtb-gold-500/10 px-1.5 py-0.5 text-[10px] text-rtb-gold-400">editando</span>}
+                      <span className="text-sm text-rtb-navy">{d.dateISO}</span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-rtb-navy-mid">{d.seq.length} paradas</span>
+                      {isActive && <span className="rounded bg-rtb-gold-50 px-1.5 py-0.5 text-[10px] text-rtb-gold-700">editando</span>}
                     </div>
-                    <div className="mt-0.5 truncate text-[11px] text-slate-500">
+                    <div className="mt-0.5 truncate text-[11px] text-rtb-navy-mid">
                       {d.seq.map((s) => pointName(s.point)).join(" → ")}
                     </div>
                   </div>
@@ -126,7 +126,7 @@ export default function RegistrarTab({ points, onAddRecorrido }) {
                     {!isActive && (
                       <Btn variant="ghost" onClick={() => loadDraft(d)} className="py-1 px-2 text-xs">Continuar</Btn>
                     )}
-                    <button onClick={() => deleteDraft(d.id)} className="p-1 text-slate-600 hover:text-rose-400"><Trash2 size={14} /></button>
+                    <button onClick={() => deleteDraft(d.id)} className="p-1 text-slate-400 hover:text-rose-700"><Trash2 size={14} /></button>
                   </div>
                 </li>
               );
@@ -141,22 +141,22 @@ export default function RegistrarTab({ points, onAddRecorrido }) {
           <Field label="Fecha del recorrido">
             <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
-          <span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-xs text-slate-400">{DOW[new Date(date + "T12:00:00").getDay()]}</span>
+          <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-rtb-navy-mid">{DOW[new Date(date + "T12:00:00").getDay()]}</span>
           {activeDraftId && (
-            <button onClick={newForm} className="ml-auto text-xs text-slate-500 hover:text-slate-300">
+            <button onClick={newForm} className="ml-auto text-xs text-rtb-navy-mid hover:text-rtb-navy">
               + Nuevo recorrido
             </button>
           )}
         </div>
-        <p className="mb-3 text-xs text-slate-500">Arma el recorrido en el orden real. Captura el <span className="text-teal-400">tiempo de manejo</span> de cada tramo y la <span className="text-sky-400">espera</span> en cada parada. Cada guardado alimenta el aprendizaje y queda disponible para el análisis de ahorro.</p>
+        <p className="mb-3 text-xs text-rtb-navy-mid">Arma el recorrido en el orden real. Captura el <span className="text-rtb-teal-700">tiempo de manejo</span> de cada tramo y la <span className="text-sky-700">espera</span> en cada parada. Cada guardado alimenta el aprendizaje y queda disponible para el análisis de ahorro.</p>
         {seq.length > 0 && (
           <ol className="mb-4 space-y-2">
             {seq.map((s, i) => (
-              <li key={i} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <li key={i} className="rounded-lg border border-rtb-teal-100 bg-white p-3">
                 <div className="mb-2 flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rtb-gold-500 text-xs font-bold text-slate-950">{i + 1}</span>
-                  <span className="text-sm text-slate-200">{pointName(s.point)}</span>
-                  <button onClick={() => removeStop(i)} className="ml-auto text-slate-600 hover:text-rose-400"><X size={15} /></button>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rtb-teal text-xs font-bold text-white">{i + 1}</span>
+                  <span className="text-sm text-rtb-navy">{pointName(s.point)}</span>
+                  <button onClick={() => removeStop(i)} className="ml-auto text-slate-400 hover:text-rose-700"><X size={15} /></button>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <Field label={i === 0 ? "Tramo (n/a)" : "Tramo (min)"}><input className={inputCls} disabled={i === 0} value={s.legMin} onChange={(e) => update(i, "legMin", e.target.value)} placeholder={i === 0 ? "—" : "14"} /></Field>
@@ -176,7 +176,7 @@ export default function RegistrarTab({ points, onAddRecorrido }) {
           </Field>
           <Btn variant="ghost" onClick={addStop} disabled={!pick}><Plus size={16} /> Agregar al recorrido</Btn>
           <div className="ml-auto flex items-center gap-3">
-            {done && <span className="text-xs text-teal-400">✓ Guardado y aprendido</span>}
+            {done && <span className="text-xs text-rtb-teal-700">✓ Guardado y aprendido</span>}
             <Btn variant="ghost" onClick={saveDraft} disabled={seq.length === 0}><Save size={16} /> Guardar borrador</Btn>
             <Btn onClick={save} disabled={seq.length < 2 || busy}><Save size={16} /> Guardar recorrido</Btn>
           </div>
@@ -184,9 +184,9 @@ export default function RegistrarTab({ points, onAddRecorrido }) {
 
         {/* Bloque comida — opcional, no contamina tramos ni esperas */}
         {seq.length >= 2 && (
-          <div className="mt-4 rounded-lg border border-orange-900/40 bg-orange-950/10 p-3">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-orange-300">
-              <span>🍽</span> Comida del día <span className="font-normal text-slate-500">(opcional · no afecta el aprendizaje)</span>
+          <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-3">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-orange-700">
+              <span>🍽</span> Comida del día <span className="font-normal text-rtb-navy-mid">(opcional · no afecta el aprendizaje)</span>
             </p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Field label="Duración (min)">

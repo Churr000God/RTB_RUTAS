@@ -22,34 +22,34 @@ export default function StopTimeline({ state }) {
           : null;
         const isCurrent = i === route.length - 1 && phase === "at-stop";
         return (
-          <li key={`v-${i}`} className={`flex flex-wrap items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${isCurrent ? "border-rtb-gold-500/50 bg-rtb-gold-500/10" : "border-teal-900/40 bg-teal-950/20"}`}>
-            <CheckCircle2 size={13} className={`shrink-0 ${isCurrent ? "text-rtb-gold-400" : "text-teal-400"}`} />
-            <span className={`flex-1 ${isCurrent ? "text-rtb-gold-200" : "text-teal-200"}`}>{s.name}</span>
-            <span className="font-mono text-[10px] text-slate-500">
+          <li key={`v-${i}`} className={`flex flex-wrap items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${isCurrent ? "border-rtb-gold-300 bg-rtb-gold-50" : "border-rtb-teal-200 bg-rtb-teal-50"}`}>
+            <CheckCircle2 size={13} className={`shrink-0 ${isCurrent ? "text-rtb-gold-700" : "text-rtb-teal-700"}`} />
+            <span className={`flex-1 ${isCurrent ? "text-rtb-gold-700" : "text-rtb-teal-700"}`}>{s.name}</span>
+            <span className="font-mono text-[10px] text-rtb-navy-mid">
               {fmtTime(s.arrivedAt)}{s.departedAt ? ` – ${fmtTime(s.departedAt)}` : isCurrent ? " · en parada" : ""}
             </span>
-            {waitMin != null && <span className="font-mono text-[10px] text-slate-600">({fmtMin(waitMin)})</span>}
+            {waitMin != null && <span className="font-mono text-[10px] text-slate-400">({fmtMin(waitMin)})</span>}
           </li>
         );
       })}
 
       {phase === "traveling" && state?.nextStop && (
-        <li className="flex items-center gap-2 rounded border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-xs">
-          <MapPin size={13} className="shrink-0 text-sky-400" />
-          <span className="flex-1 text-sky-200">{state.nextStop.name}</span>
-          <span className="text-[10px] text-sky-400">En camino</span>
+        <li className="flex items-center gap-2 rounded border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs">
+          <MapPin size={13} className="shrink-0 text-sky-700" />
+          <span className="flex-1 text-sky-700">{state.nextStop.name}</span>
+          <span className="text-[10px] text-sky-700">En camino</span>
         </li>
       )}
 
       {pending.map((s, i) => (
-        <li key={`p-${s.id}`} className="flex items-center gap-2 rounded border border-slate-800 bg-slate-950/40 px-2.5 py-1.5 text-xs">
-          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full bg-slate-800 text-[9px] font-bold text-slate-400">{i + 1}</span>
-          <span className="flex-1 text-slate-300">{s.name}</span>
+        <li key={`p-${s.id}`} className="flex items-center gap-2 rounded border border-rtb-teal-100 bg-white px-2.5 py-1.5 text-xs">
+          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full bg-slate-100 text-[9px] font-bold text-rtb-navy-mid">{i + 1}</span>
+          <span className="flex-1 text-rtb-navy-mid">{s.name}</span>
         </li>
       ))}
 
       {route.length === 0 && pending.length === 0 && (
-        <li className="rounded border border-dashed border-slate-800 px-2.5 py-3 text-center text-xs text-slate-600">Sin paradas</li>
+        <li className="rounded border border-dashed border-rtb-teal-100 px-2.5 py-3 text-center text-xs text-slate-400">Sin paradas</li>
       )}
     </ul>
   );

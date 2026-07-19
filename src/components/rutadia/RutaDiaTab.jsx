@@ -32,10 +32,10 @@ const googleMapsDirUrl = (lat, lng) => `https://www.google.com/maps/dir/?api=1&d
 const DispatchBanner = ({ notice, ackedAt, onDismiss }) => {
   if (!notice || notice.at <= (ackedAt ?? 0)) return null;
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-rtb-gold-500/40 bg-rtb-gold-500/10 px-3 py-2 text-xs text-rtb-gold-200">
+    <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
       <Info size={14} className="mt-0.5 shrink-0" />
       <span className="flex-1">{notice.text}</span>
-      <button onClick={onDismiss} className="shrink-0 text-rtb-gold-400 hover:text-rtb-gold-200" title="Descartar">
+      <button onClick={onDismiss} className="shrink-0 text-orange-400 hover:text-orange-700" title="Descartar">
         <X size={13} />
       </button>
     </div>
@@ -58,32 +58,32 @@ const NotesChat = ({ notes, onSend }) => {
   };
   return (
     <Card className="p-3">
-      <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+      <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-rtb-navy-mid">
         <MessageSquare size={12} /> Mensajes con despacho
       </h3>
       {notes.length > 0 ? (
         <ul className="mb-2 max-h-48 space-y-1.5 overflow-y-auto">
           {notes.map((n) => (
             <li key={n.id} className={`flex ${n.from === "driver" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-rtb-gold-500/15 text-rtb-gold-100" : "bg-slate-800 text-slate-300"}`}>
+              <div className={`max-w-[85%] rounded-lg px-2.5 py-1.5 text-xs ${n.from === "driver" ? "bg-rtb-gold-100 text-rtb-navy" : "bg-slate-100 text-rtb-navy-mid"}`}>
                 <p>{n.text}</p>
-                <p className="mt-0.5 text-[9px] text-slate-500">{n.from === "driver" ? "Tú" : (n.byName || "Despacho")} · {fmtTime(n.at)}</p>
+                <p className="mt-0.5 text-[9px] text-rtb-navy-mid">{n.from === "driver" ? "Tú" : (n.byName || "Despacho")} · {fmtTime(n.at)}</p>
               </div>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mb-2 text-[11px] text-slate-600">Sin mensajes todavía.</p>
+        <p className="mb-2 text-[11px] text-slate-400">Sin mensajes todavía.</p>
       )}
       <div className="flex gap-1.5">
         <input
           value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") send(); }}
           placeholder="Responder al despacho…"
-          className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600"
+          className="flex-1 rounded border border-rtb-navy/15 bg-white px-2 py-1.5 text-xs text-rtb-navy placeholder:text-rtb-navy/35"
         />
         <button onClick={send} disabled={!text.trim()}
-          className="shrink-0 rounded bg-rtb-gold-500 px-2.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-rtb-gold-400 disabled:opacity-40"
+          className="shrink-0 rounded bg-rtb-teal px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-rtb-navy disabled:opacity-40"
           title="Enviar">
           <Send size={12} />
         </button>
@@ -100,20 +100,20 @@ function StopInfoPanel({ point, nota, onNotaChange, estado, onEstadoChange, show
   const [open, setOpen] = useState(true);
   const hasCoords = point?.lat != null && point?.lng != null;
   return (
-    <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/40">
+    <div className="mb-3 rounded-lg border border-rtb-teal-100 bg-white">
       <button type="button" onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-rtb-navy-mid">
         <span className="flex items-center gap-1.5"><MapIcon size={13} /> Detalle de la parada</span>
         <ChevronDown size={14} className={`transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="space-y-3 border-t border-slate-800 px-3 py-3">
+        <div className="space-y-3 border-t border-rtb-teal-100 px-3 py-3">
           {hasCoords ? (
             <Suspense fallback={<MapFallback className="h-36 w-full rounded-lg" />}>
               <LeafletMap className="h-36 w-full overflow-hidden rounded-lg" lat={point.lat} lng={point.lng} />
             </Suspense>
           ) : (
-            <p className="rounded-lg border border-dashed border-slate-800 bg-slate-950/30 px-3 py-4 text-center text-xs text-slate-500">
+            <p className="rounded-lg border border-dashed border-rtb-teal-100 bg-white px-3 py-4 text-center text-xs text-rtb-navy-mid">
               Este punto no tiene coordenadas registradas.
             </p>
           )}
@@ -121,7 +121,7 @@ function StopInfoPanel({ point, nota, onNotaChange, estado, onEstadoChange, show
             href={hasCoords ? googleMapsDirUrl(point.lat, point.lng) : undefined}
             target="_blank" rel="noreferrer"
             onClick={(e) => { if (!hasCoords) e.preventDefault(); }}
-            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${hasCoords ? "bg-sky-600 text-white hover:bg-sky-500" : "cursor-not-allowed bg-slate-800 text-slate-600"}`}
+            className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${hasCoords ? "bg-sky-600 text-white hover:bg-sky-500" : "cursor-not-allowed bg-slate-100 text-slate-400"}`}
           >
             <Navigation size={15} /> Ir (Google Maps)
           </a>
@@ -318,34 +318,34 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
         <Card className="p-6">
           <Empty>
             {isAdmin
-              ? <>No tienes una ruta en curso. Si ya asignaste una, aparece abajo — presiona <span className="text-rtb-gold-400">"Cargar"</span>. Para crear y asignar una nueva ve a <span className="text-rtb-gold-400">Generación y carga de rutas</span>.</>
-              : <>No tienes una ruta asignada en curso. Cuando el despachador te asigne una aparecerá abajo — presiona <span className="text-rtb-gold-400">"Cargar"</span> para iniciarla.</>}
+              ? <>No tienes una ruta en curso. Si ya asignaste una, aparece abajo — presiona <span className="text-rtb-gold-700">"Cargar"</span>. Para crear y asignar una nueva ve a <span className="text-rtb-gold-700">Generación y carga de rutas</span>.</>
+              : <>No tienes una ruta asignada en curso. Cuando el despachador te asigne una aparecerá abajo — presiona <span className="text-rtb-gold-700">"Cargar"</span> para iniciarla.</>}
           </Empty>
         </Card>
         {rutasGuardadas.length > 0 && (
           <Card className="p-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
-              <BookMarked size={15} className="text-rtb-gold-400" /> Rutas guardadas
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-rtb-navy">
+              <BookMarked size={15} className="text-rtb-gold-700" /> Rutas guardadas
             </h3>
             <ul className="space-y-2">
               {rutasGuardadas.map((r) => (
-                <li key={r.id} className="rounded-lg border border-slate-700 bg-slate-800/50">
+                <li key={r.id} className="rounded-lg border border-rtb-navy/15 bg-rtb-surface">
                   {editId === r.id ? (
                     /* ---- Editor inline ---- */
                     <div className="p-3 space-y-3">
-                      <p className="text-xs font-semibold text-rtb-gold-300">Editando: {r.nombre}</p>
+                      <p className="text-xs font-semibold text-rtb-gold-700">Editando: {r.nombre}</p>
 
                       {/* Lista de paradas actuales con botón quitar */}
                       <ul className="space-y-1">
                         {editStops.map((s, idx) => (
-                          <li key={idx} className="flex items-center gap-2 rounded border border-slate-700 bg-slate-900/60 px-2.5 py-1.5">
-                            <span className="flex-1 text-xs text-slate-200">{s.name}</span>
+                          <li key={idx} className="flex items-center gap-2 rounded border border-rtb-navy/15 bg-rtb-surface px-2.5 py-1.5">
+                            <span className="flex-1 text-xs text-rtb-navy">{s.name}</span>
                             {idx === 0
-                              ? <span className="text-[10px] text-slate-500">inicio</span>
+                              ? <span className="text-[10px] text-rtb-navy-mid">inicio</span>
                               : (
                                 <button
                                   onClick={() => setEditStops((prev) => prev.filter((_, i) => i !== idx))}
-                                  className="text-rose-400 hover:text-rose-300"
+                                  className="text-rose-600 hover:text-rose-700"
                                   title="Quitar parada"
                                 >
                                   <Trash2 size={13} />
@@ -358,9 +358,9 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
 
                       {/* Buscador para agregar punto */}
                       <div>
-                        <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Agregar parada</p>
+                        <p className="mb-1 text-[10px] uppercase tracking-wider text-rtb-navy-mid">Agregar parada</p>
                         <div className="relative mb-1">
-                          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-rtb-navy-mid" />
                           <input
                             className={inputCls + " pl-8 text-xs"}
                             placeholder="Buscar punto…"
@@ -379,17 +379,17 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                                 <li key={p.id}>
                                   <button
                                     onClick={() => { setEditStops((prev) => [...prev, { id: p.id, name: p.name }]); setEditSearch(""); }}
-                                    className="flex w-full items-center gap-2 rounded border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-left hover:border-slate-500"
+                                    className="flex w-full items-center gap-2 rounded border border-rtb-navy/15 bg-rtb-surface px-2.5 py-1.5 text-left hover:border-slate-400"
                                   >
                                     <span className={`h-2 w-2 shrink-0 rounded-full ${TYPE_META[p.type]?.dot ?? "bg-slate-400"}`} />
-                                    <span className="flex-1 text-xs text-slate-200">{p.name}</span>
-                                    <Plus size={12} className="text-slate-500" />
+                                    <span className="flex-1 text-xs text-rtb-navy">{p.name}</span>
+                                    <Plus size={12} className="text-rtb-navy-mid" />
                                   </button>
                                 </li>
                               ))}
                             </ul>
                           ) : (
-                            <p className="text-xs text-slate-500">Sin resultados.</p>
+                            <p className="text-xs text-rtb-navy-mid">Sin resultados.</p>
                           );
                         })()}
                       </div>
@@ -397,7 +397,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                       {/* Selector de asignación */}
                       {profiles.length > 0 && (
                         <div>
-                          <p className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">Asignar a chofer</p>
+                          <p className="mb-1 text-[10px] uppercase tracking-wider text-rtb-navy-mid">Asignar a chofer</p>
                           <select
                             className={inputCls + " text-xs"}
                             value={editAssignedTo ?? ""}
@@ -423,8 +423,8 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                     /* ---- Vista normal ---- */
                     <div className="flex items-center gap-3 px-3 py-2.5">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-slate-200">{r.nombre}</div>
-                        <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                        <div className="text-sm font-medium text-rtb-navy">{r.nombre}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-rtb-navy-mid">
                           {r.fecha && (
                             <span className="flex items-center gap-1">
                               <Calendar size={11} /> {r.fecha}
@@ -432,19 +432,19 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                           )}
                           <span>{r.stops.length} paradas</span>
                           {r.stops.length > 0 && (
-                            <span className="text-slate-600">
+                            <span className="text-slate-400">
                               {r.stops[0]?.name} → {r.stops[r.stops.length - 1]?.name}
                             </span>
                           )}
-                          <span className="text-slate-600">{r.closed ? "Cerrada" : "Abierta"}</span>
+                          <span className="text-slate-400">{r.closed ? "Cerrada" : "Abierta"}</span>
                           {isAdmin && r.assignedTo && (
-                            <span className="flex items-center gap-1 text-rtb-gold-600">
+                            <span className="flex items-center gap-1 text-rtb-gold-700">
                               <Users size={10} />
                               {profiles.find((p) => p.userId === r.assignedTo)?.nombre ?? "Chofer asignado"}
                             </span>
                           )}
                           {isAdmin && !r.assignedTo && (
-                            <span className="text-slate-700">Sin asignar</span>
+                            <span className="text-slate-400">Sin asignar</span>
                           )}
                         </div>
                       </div>
@@ -457,7 +457,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                             <Btn
                               variant="ghost"
                               onClick={() => startEdit(r)}
-                              className="py-1 px-2 text-slate-400 hover:text-slate-200"
+                              className="py-1 px-2 text-rtb-navy-mid hover:text-rtb-navy"
                               title="Editar paradas"
                             >
                               <Pencil size={13} />
@@ -465,7 +465,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                             <Btn
                               variant="ghost"
                               onClick={async () => { if (await confirm({ message: `¿Eliminar "${r.nombre}"?`, confirmLabel: "Eliminar", danger: true })) onDeleteRutaGuardada(r.id); }}
-                              className="py-1 px-2 text-rose-400 hover:text-rose-300"
+                              className="py-1 px-2 text-rose-600 hover:text-rose-700"
                             >
                               <Trash2 size={13} />
                             </Btn>
@@ -657,9 +657,9 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
   if (done) {
     return (
       <Card className="p-8 text-center">
-        <CheckCircle2 size={44} className="mx-auto mb-3 text-teal-400" />
-        <h2 className="mb-1 text-base font-semibold text-slate-200">¡Ruta completada!</h2>
-        <p className="mb-5 text-sm text-slate-400">El recorrido fue guardado y ya alimenta el aprendizaje del sistema.</p>
+        <CheckCircle2 size={44} className="mx-auto mb-3 text-rtb-teal-700" />
+        <h2 className="mb-1 text-base font-semibold text-rtb-navy">¡Ruta completada!</h2>
+        <p className="mb-5 text-sm text-rtb-navy-mid">El recorrido fue guardado y ya alimenta el aprendizaje del sistema.</p>
         {doneSummary && (
           <div className="mx-auto mb-5 grid max-w-md grid-cols-2 gap-2 text-left sm:grid-cols-3">
             <Stat label="Paradas visitadas" value={doneSummary.visitedCount} />
@@ -691,20 +691,20 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
       <Card className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-200">Ruta del día · {title}</h2>
-            <p className="mt-0.5 text-xs text-slate-500">{closed ? "Ruta cerrada" : "Ruta abierta"}</p>
+            <h2 className="text-sm font-semibold text-rtb-navy">Ruta del día · {title}</h2>
+            <p className="mt-0.5 text-xs text-rtb-navy-mid">{closed ? "Ruta cerrada" : "Ruta abierta"}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${online && syncOk ? "bg-teal-900/40 text-teal-300" : "bg-orange-900/40 text-orange-300"}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${online && syncOk ? "bg-teal-400" : "bg-orange-400"}`} />
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${online && syncOk ? "bg-rtb-teal-50 text-rtb-teal-700" : "bg-orange-50 text-orange-700"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${online && syncOk ? "bg-rtb-teal" : "bg-orange-400"}`} />
               {online && syncOk ? "En línea" : "Sin conexión · guardado en el teléfono"}
             </span>
             {isAdmin && <Btn variant="danger" onClick={cancel}>Cancelar ruta</Btn>}
           </div>
         </div>
 
-        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-          <div className="h-full rounded-full bg-teal-500 transition-all"
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-rtb-teal transition-all"
             style={{ width: `${totalPlanned ? Math.min(100, (route.length / totalPlanned) * 100) : 0}%` }} />
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -716,7 +716,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
         </div>
 
         <button onClick={() => setShowResumen((v) => !v)}
-          className="mt-3 flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-400 transition hover:text-slate-200">
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-rtb-teal-100 bg-white px-3 py-2 text-xs text-rtb-navy-mid transition hover:text-rtb-navy">
           <span className="flex items-center gap-1.5"><MapIcon size={13} /> Ver paradas y mapa de la ruta</span>
           <ChevronDown size={14} className={`transition ${showResumen ? "rotate-180" : ""}`} />
         </button>
@@ -727,17 +727,17 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
             </Suspense>
             <ul className="space-y-1">
               {route.map((s, i) => (
-                <li key={`v-${i}`} className="flex items-center gap-2 rounded border border-teal-900/40 bg-teal-950/20 px-2.5 py-1.5 text-xs">
-                  <CheckCircle2 size={13} className="shrink-0 text-teal-400" />
-                  <span className="flex-1 text-teal-200">{s.name}</span>
-                  {s.estado && <span className="text-[10px] text-slate-500">{ESTADO_ENTREGA.find((o) => o.value === s.estado)?.label}</span>}
+                <li key={`v-${i}`} className="flex items-center gap-2 rounded border border-rtb-teal-200 bg-rtb-teal-50 px-2.5 py-1.5 text-xs">
+                  <CheckCircle2 size={13} className="shrink-0 text-rtb-teal-700" />
+                  <span className="flex-1 text-rtb-teal-700">{s.name}</span>
+                  {s.estado && <span className="text-[10px] text-rtb-navy-mid">{ESTADO_ENTREGA.find((o) => o.value === s.estado)?.label}</span>}
                 </li>
               ))}
               {(suggested?.orderIds?.length ? suggested.orderIds.map((id) => remaining.find((s) => s.id === id)).filter(Boolean) : remaining).map((s, i) => (
-                <li key={`p-${s.id}`} className={`flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${i === 0 ? "border-rtb-gold-500/50 bg-rtb-gold-500/5" : "border-slate-800 bg-slate-950/40"}`}>
-                  <span className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${i === 0 ? "bg-rtb-gold-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>{i + 1}</span>
-                  <span className={`flex-1 ${i === 0 ? "text-rtb-gold-200" : "text-slate-300"}`}>{s.name}</span>
-                  {i === 0 && <span className="text-[10px] text-rtb-gold-500">Sugerido</span>}
+                <li key={`p-${s.id}`} className={`flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs ${i === 0 ? "border-rtb-gold-300 bg-rtb-gold-50" : "border-rtb-teal-100 bg-white"}`}>
+                  <span className={`flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${i === 0 ? "bg-rtb-gold-500 text-rtb-navy" : "bg-slate-100 text-rtb-navy-mid"}`}>{i + 1}</span>
+                  <span className={`flex-1 ${i === 0 ? "text-rtb-navy" : "text-rtb-navy-mid"}`}>{s.name}</span>
+                  {i === 0 && <span className="text-[10px] text-rtb-gold-700">Sugerido</span>}
                 </li>
               ))}
             </ul>
@@ -748,7 +748,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
       {/* Historial de paradas visitadas */}
       {route.length > 0 && (
         <Card className="p-4">
-          <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Paradas visitadas</h3>
+          <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-rtb-navy-mid">Paradas visitadas</h3>
           <ul className="space-y-1.5">
             {route.map((stop, i) => {
               const isLast = i === route.length - 1;
@@ -758,28 +758,28 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
               const waitMin = stop.arrivedAt && stop.departedAt
                 ? Math.round((stop.departedAt - stop.arrivedAt) / 60000) : null;
               return (
-                <li key={i} className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 ${isLast ? "border-rtb-gold-500/50 bg-rtb-gold-500/5" : "border-teal-900/40 bg-teal-950/20"}`}>
+                <li key={i} className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 ${isLast ? "border-rtb-gold-300 bg-rtb-gold-50" : "border-rtb-teal-200 bg-rtb-teal-50"}`}>
                   <div className="mt-0.5 shrink-0">
                     {isLast
-                      ? <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-rtb-gold-500 text-[10px] font-bold text-slate-950">{i + 1}</span>
-                      : <CheckCircle2 size={18} className="text-teal-400" />}
+                      ? <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-rtb-gold-500 text-[10px] font-bold text-rtb-navy">{i + 1}</span>
+                      : <CheckCircle2 size={18} className="text-rtb-teal-700" />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-medium ${isLast ? "text-rtb-gold-200" : "text-teal-200"}`}>{stop.name}</span>
-                      {closed && stop.id === endId && i > 0 && <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-500">regreso</span>}
+                      <span className={`text-sm font-medium ${isLast ? "text-rtb-navy" : "text-rtb-teal-700"}`}>{stop.name}</span>
+                      {closed && stop.id === endId && i > 0 && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-rtb-navy-mid">regreso</span>}
                     </div>
                     <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
-                      {stop.arrivedAt  && <span className="text-slate-500">Llegada <span className="text-slate-300">{fmtTime(stop.arrivedAt)}</span></span>}
-                      {stop.departedAt && <span className="text-slate-500">Salida <span className="text-slate-300">{fmtTime(stop.departedAt)}</span></span>}
-                      {legMin  != null && <span className="text-slate-500">Tramo <span className="text-teal-300">{fmtMin(legMin)}</span></span>}
-                      {waitMin != null && <span className="text-slate-500">Espera <span className="text-sky-300">{fmtMin(waitMin)}</span></span>}
-                      {stop.legKm && i > 0 && <span className="text-slate-500">{stop.legKm} km</span>}
+                      {stop.arrivedAt  && <span className="text-rtb-navy-mid">Llegada <span className="text-rtb-navy-mid">{fmtTime(stop.arrivedAt)}</span></span>}
+                      {stop.departedAt && <span className="text-rtb-navy-mid">Salida <span className="text-rtb-navy-mid">{fmtTime(stop.departedAt)}</span></span>}
+                      {legMin  != null && <span className="text-rtb-navy-mid">Tramo <span className="text-rtb-teal-700">{fmtMin(legMin)}</span></span>}
+                      {waitMin != null && <span className="text-rtb-navy-mid">Espera <span className="text-sky-700">{fmtMin(waitMin)}</span></span>}
+                      {stop.legKm && i > 0 && <span className="text-rtb-navy-mid">{stop.legKm} km</span>}
                       {(stop.legBreakMin > 0 || stop.waitBreakMin > 0) && (
-                        <span className="text-slate-500">🍽 <span className="text-orange-300">{fmtMin((stop.legBreakMin || 0) + (stop.waitBreakMin || 0))}</span>{stop.breakNote && <span className="ml-0.5 text-slate-500">({stop.breakNote})</span>}</span>
+                        <span className="text-rtb-navy-mid">🍽 <span className="text-orange-700">{fmtMin((stop.legBreakMin || 0) + (stop.waitBreakMin || 0))}</span>{stop.breakNote && <span className="ml-0.5 text-rtb-navy-mid">({stop.breakNote})</span>}</span>
                       )}
-                      {stop.estado && <span className="text-slate-500">· <span className="text-sky-300">{ESTADO_ENTREGA.find((o) => o.value === stop.estado)?.label}</span></span>}
-                      {stop.nota && <span className="text-slate-500">· "{stop.nota}"</span>}
+                      {stop.estado && <span className="text-rtb-navy-mid">· <span className="text-sky-700">{ESTADO_ENTREGA.find((o) => o.value === stop.estado)?.label}</span></span>}
+                      {stop.nota && <span className="text-rtb-navy-mid">· "{stop.nota}"</span>}
                     </div>
                   </div>
                 </li>
@@ -800,7 +800,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
         {/* Fase: inicio */}
         {phase === "initial" && (
           <>
-            <h3 className="mb-3 text-sm font-semibold text-slate-200">Punto de inicio: {startName}</h3>
+            <h3 className="mb-3 text-sm font-semibold text-rtb-navy">Punto de inicio: {startName}</h3>
             <Btn onClick={handleInitialArrival} className="w-full justify-center">
               <MapPin size={16} /> Llegada a {startName}
             </Btn>
@@ -810,14 +810,14 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
         {/* Fase: en parada */}
         {phase === "at-stop" && curStop && (
           <>
-            <h3 className="mb-2 text-sm font-semibold text-slate-200">En {curStop.name}</h3>
-            <p className="mb-3 text-xs text-slate-500">
-              Llegada: <span className="text-slate-200">{fmtTime(curStop.arrivedAt)}</span>
+            <h3 className="mb-2 text-sm font-semibold text-rtb-navy">En {curStop.name}</h3>
+            <p className="mb-3 text-xs text-rtb-navy-mid">
+              Llegada: <span className="text-rtb-navy">{fmtTime(curStop.arrivedAt)}</span>
               {route.length > 1 && route[route.length - 2]?.departedAt && (
-                <> · Tramo: <span className="text-teal-300">{fmtMin(Math.round((curStop.arrivedAt - route[route.length - 2].departedAt) / 60000))}</span></>
+                <> · Tramo: <span className="text-rtb-teal-700">{fmtMin(Math.round((curStop.arrivedAt - route[route.length - 2].departedAt) / 60000))}</span></>
               )}
             </p>
-            {err && <p className="mb-2 text-xs text-rose-400">{err}</p>}
+            {err && <p className="mb-2 text-xs text-rose-700">{err}</p>}
             {/* El almacén (inicio) no tiene nota/estado de entrega — no aplica */}
             {curStop.id !== startId && (
               <StopInfoPanel
@@ -830,18 +830,18 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
             )}
             {/* Pausa activa */}
             {onBreak ? (
-              <div className="mb-3 rounded-lg border border-orange-800/50 bg-orange-950/20 p-3">
-                <p className="mb-2 text-sm font-semibold text-orange-300">🍽 Comida en curso — desde {fmtTime(breakStart)}</p>
+              <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                <p className="mb-2 text-sm font-semibold text-orange-700">🍽 Comida en curso — desde {fmtTime(breakStart)}</p>
                 <Field label="Lugar / nota (opcional)">
                   <input className={inputCls} value={breakNoteInput} onChange={(e) => setBreakNoteInput(e.target.value)} placeholder="Ej. Tacos Reforma" />
                 </Field>
-                <Btn onClick={handleEndBreak} className="mt-2 w-full justify-center border border-orange-700/50 bg-orange-900/30 text-orange-200 hover:bg-orange-800/40">
+                <Btn onClick={handleEndBreak} className="mt-2 w-full justify-center border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100">
                   ✓ Terminar comida
                 </Btn>
               </div>
             ) : (
               <button onClick={handleStartBreak}
-                className="mb-3 flex w-full items-center gap-2 rounded-lg border border-orange-900/30 bg-orange-950/10 px-3 py-2 text-sm text-orange-300 transition hover:bg-orange-950/25">
+                className="mb-3 flex w-full items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 transition hover:bg-orange-100">
                 <span>🍽</span> Comida / Pausa
               </button>
             )}
@@ -855,7 +855,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
         {phase === "choose-next" && (
           <>
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-200">¿A dónde vas ahora?</h3>
+              <h3 className="text-sm font-semibold text-rtb-navy">¿A dónde vas ahora?</h3>
               {remaining.length > 1 && suggested?.orderIds?.length > 0 && (
                 <Btn variant="ghost" onClick={handleResuggest} className="py-1 px-2.5 text-xs">
                   <Zap size={12} /> Re-sugerir orden
@@ -865,7 +865,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
 
             {remaining.length > 0 && (
               <div className="mb-4">
-                <p className="mb-2 text-[11px] uppercase tracking-wider text-slate-500">Paradas planificadas pendientes</p>
+                <p className="mb-2 text-[11px] uppercase tracking-wider text-rtb-navy-mid">Paradas planificadas pendientes</p>
                 <ul className="space-y-1.5">
                   {remaining.map((stop) => {
                     const badge = suggested?.orderIds?.indexOf(stop.id);
@@ -873,15 +873,15 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                     return (
                       <li key={stop.id}>
                         <button onClick={() => handleSelectNext(stop)}
-                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${isSuggested ? "border-rtb-gold-500/50 bg-rtb-gold-500/5 hover:border-rtb-gold-400" : "border-slate-800 bg-slate-950/50 hover:border-slate-600"}`}>
+                          className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${isSuggested ? "border-rtb-gold-300 bg-rtb-gold-50 hover:border-rtb-gold-400" : "border-rtb-teal-100 bg-white hover:border-slate-400"}`}>
                           {badge != null && badge >= 0 ? (
-                            <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${isSuggested ? "bg-rtb-gold-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>{badge + 1}</span>
+                            <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${isSuggested ? "bg-rtb-gold-500 text-rtb-navy" : "bg-slate-100 text-rtb-navy-mid"}`}>{badge + 1}</span>
                           ) : (
-                            <MapPin size={14} className="shrink-0 text-rtb-gold-400" />
+                            <MapPin size={14} className="shrink-0 text-rtb-gold-700" />
                           )}
-                          <span className={`text-sm ${isSuggested ? "text-rtb-gold-200" : "text-slate-200"}`}>{stop.name}</span>
-                          {isSuggested && <span className="text-[10px] text-rtb-gold-500">Sugerido</span>}
-                          <ChevronRight size={14} className="ml-auto text-slate-600" />
+                          <span className={`text-sm ${isSuggested ? "text-rtb-navy" : "text-rtb-navy"}`}>{stop.name}</span>
+                          {isSuggested && <span className="text-[10px] text-rtb-gold-700">Sugerido</span>}
+                          <ChevronRight size={14} className="ml-auto text-slate-400" />
                         </button>
                       </li>
                     );
@@ -892,9 +892,9 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
 
             {extraPoints.length > 0 && (
               <div className="mb-4">
-                <p className="mb-2 text-[11px] uppercase tracking-wider text-slate-500">Agregar parada no planificada</p>
+                <p className="mb-2 text-[11px] uppercase tracking-wider text-rtb-navy-mid">Agregar parada no planificada</p>
                 <div className="relative mb-2">
-                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-rtb-navy-mid" />
                   <input
                     className={inputCls + " pl-8"}
                     placeholder="Buscar punto…"
@@ -912,28 +912,28 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                         <li key={p.id}>
                           <button
                             onClick={() => { handleSelectNext({ id: p.id, name: p.name }); setExtraSearch(""); }}
-                            className="flex w-full items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 text-left transition hover:border-slate-600">
+                            className="flex w-full items-center gap-3 rounded-lg border border-rtb-teal-100 bg-white px-3 py-2 text-left transition hover:border-slate-400">
                             <span className={`h-2 w-2 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
-                            <span className="text-sm text-slate-200">{p.name}</span>
-                            <span className="ml-auto text-[11px] text-slate-500">{TYPE_META[p.type].label}</span>
+                            <span className="text-sm text-rtb-navy">{p.name}</span>
+                            <span className="ml-auto text-[11px] text-rtb-navy-mid">{TYPE_META[p.type].label}</span>
                           </button>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="px-1 text-xs text-slate-500">Sin resultados para "{extraSearch}".</p>
+                    <p className="px-1 text-xs text-rtb-navy-mid">Sin resultados para "{extraSearch}".</p>
                   );
                 })()}
               </div>
             )}
 
-            <div className="space-y-2 border-t border-slate-800 pt-3">
+            <div className="space-y-2 border-t border-rtb-teal-100 pt-3">
               {/* Ruta cerrada: regreso al almacén (bloqueado como destino final) */}
               {closed && (
                 <button onClick={() => handleSelectNext({ id: startId, name: startName })}
-                  className="flex w-full items-center gap-3 rounded-lg border border-rtb-gold-800/40 bg-rtb-gold-950/20 px-3 py-2.5 text-left transition hover:border-rtb-gold-700/50">
-                  <Navigation size={14} className="shrink-0 text-rtb-gold-400" />
-                  <span className="text-sm text-rtb-gold-300">Regresar al almacén (cerrar ruta)</span>
+                  className="flex w-full items-center gap-3 rounded-lg border border-rtb-gold-300 bg-rtb-gold-50 px-3 py-2.5 text-left transition hover:border-rtb-gold-400">
+                  <Navigation size={14} className="shrink-0 text-rtb-gold-700" />
+                  <span className="text-sm text-rtb-gold-700">Regresar al almacén (cerrar ruta)</span>
                   <ChevronRight size={14} className="ml-auto text-rtb-gold-700" />
                 </button>
               )}
@@ -944,7 +944,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
                 </Btn>
               )}
             </div>
-            {err && <p className="mt-2 text-xs text-rose-400">{err}</p>}
+            {err && <p className="mt-2 text-xs text-rose-700">{err}</p>}
           </>
         )}
 
@@ -952,7 +952,7 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
         {phase === "traveling" && nextStop && (
           <>
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-200">En camino a {nextStop.name}</h3>
+              <h3 className="text-sm font-semibold text-rtb-navy">En camino a {nextStop.name}</h3>
               <Btn variant="ghost" onClick={handleChangeDestino} className="py-1 px-2.5 text-xs">
                 <GitCompare size={12} /> Cambiar destino
               </Btn>
@@ -970,26 +970,26 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
               </Field>
             </div>
             {pendingLegBreakMin > 0 && !onBreak && (
-              <p className="mb-2 text-xs text-orange-300">🍽 Comida registrada: {fmtMin(pendingLegBreakMin)} (se descontará del tramo)</p>
+              <p className="mb-2 text-xs text-orange-700">🍽 Comida registrada: {fmtMin(pendingLegBreakMin)} (se descontará del tramo)</p>
             )}
             {/* Pausa activa */}
             {onBreak ? (
-              <div className="mb-3 rounded-lg border border-orange-800/50 bg-orange-950/20 p-3">
-                <p className="mb-2 text-sm font-semibold text-orange-300">🍽 Comida en curso — desde {fmtTime(breakStart)}</p>
+              <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                <p className="mb-2 text-sm font-semibold text-orange-700">🍽 Comida en curso — desde {fmtTime(breakStart)}</p>
                 <Field label="Lugar / nota (opcional)">
                   <input className={inputCls} value={breakNoteInput} onChange={(e) => setBreakNoteInput(e.target.value)} placeholder="Ej. Tacos Reforma" />
                 </Field>
-                <Btn onClick={handleEndBreak} className="mt-2 w-full justify-center border border-orange-700/50 bg-orange-900/30 text-orange-200 hover:bg-orange-800/40">
+                <Btn onClick={handleEndBreak} className="mt-2 w-full justify-center border border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100">
                   ✓ Terminar comida
                 </Btn>
               </div>
             ) : (
               <button onClick={handleStartBreak}
-                className="mb-3 flex w-full items-center gap-2 rounded-lg border border-orange-900/30 bg-orange-950/10 px-3 py-2 text-sm text-orange-300 transition hover:bg-orange-950/25">
+                className="mb-3 flex w-full items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-700 transition hover:bg-orange-100">
                 <span>🍽</span> Comida / Pausa
               </button>
             )}
-            {err && <p className="mb-2 text-xs text-rose-400">{err}</p>}
+            {err && <p className="mb-2 text-xs text-rose-700">{err}</p>}
             <Btn onClick={handleArrival} disabled={saving || onBreak} className="w-full justify-center">
               <MapPin size={16} /> Llegada a {nextStop.name}
             </Btn>

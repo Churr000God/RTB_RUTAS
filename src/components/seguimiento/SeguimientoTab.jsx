@@ -16,16 +16,16 @@ export default function SeguimientoTab({
 
   if (entries.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-8 text-center">
-        <Radio size={36} className="mx-auto mb-3 text-slate-600" />
-        <p className="text-sm text-slate-400">No hay rutas en curso en este momento.</p>
+      <div className="rounded-xl border border-rtb-teal-100 bg-rtb-surface p-8 text-center">
+        <Radio size={36} className="mx-auto mb-3 text-slate-400" />
+        <p className="text-sm text-rtb-navy-mid">No hay rutas en curso en este momento.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-rtb-navy-mid">
         {entries.length} {entries.length === 1 ? "ruta activa" : "rutas activas"} · actualización en vivo
       </p>
       {entries.map(({ driverId, driverNombre, state }) => (

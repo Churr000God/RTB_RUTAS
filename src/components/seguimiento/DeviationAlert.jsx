@@ -26,7 +26,7 @@ export default function DeviationAlert({ state, allPoints, segments, waits, thre
     : `Lleva ${fmtMin(dev.realMin)} camino a ${dev.pointName} (esperado ~${fmtMin(dev.expectedMin)}${dev.approx ? ", estimado" : ""})`;
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+    <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
       <AlertTriangle size={14} className="shrink-0" />
       <span>{label}</span>
     </div>

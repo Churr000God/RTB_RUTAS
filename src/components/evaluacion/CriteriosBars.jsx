@@ -17,15 +17,15 @@ export default function CriteriosBars({ criterios, detail = true }) {
         const score = isObj ? raw.score : raw;
         const aplica = isObj ? raw.aplica : score != null;
         return (
-          <div key={k} className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+          <div key={k} className="rounded-lg border border-rtb-teal-100 bg-white p-2">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-slate-500">{CRITERIO_LABEL[k]}</span>
-              <span className="font-mono text-xs text-slate-200">{aplica && score != null ? Math.round(score) : "N/A"}</span>
+              <span className="text-[10px] uppercase tracking-wider text-rtb-navy-mid">{CRITERIO_LABEL[k]}</span>
+              <span className="font-mono text-xs text-rtb-navy">{aplica && score != null ? Math.round(score) : "N/A"}</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800 print-brand-surface print-brand-border border">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 print-brand-surface print-brand-border border">
               <div className="h-full rounded-full bg-rtb-gold-500 print-brand-gold-bg" style={{ width: `${aplica && score != null ? score : 0}%` }} />
             </div>
-            {detail && isObj && raw.detail && <p className="mt-1 text-[10px] text-slate-500">{raw.detail}</p>}
+            {detail && isObj && raw.detail && <p className="mt-1 text-[10px] text-rtb-navy-mid">{raw.detail}</p>}
           </div>
         );
       })}

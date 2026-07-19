@@ -161,13 +161,13 @@ export default function OptimizarTab({ points, segments, waits, rutasGuardadas =
   if (points.length < 2) return <Card className="p-6"><Empty>Agrega puntos y registra recorridos primero.</Empty></Card>;
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-bold text-slate-100">Generación y carga de rutas</h2>
+      <h2 className="text-lg font-bold text-rtb-navy">Generación y carga de rutas</h2>
       <Card className="p-4">
         <div className="grid gap-4 md:grid-cols-[1.3fr_1fr]">
           <div>
-            <h2 className="mb-2 text-sm font-semibold text-slate-200">Puntos a visitar hoy</h2>
+            <h2 className="mb-2 text-sm font-semibold text-rtb-navy">Puntos a visitar hoy</h2>
             <div className="relative mb-2">
-              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-rtb-navy-mid" />
               <input
                 className={inputCls + " py-1.5 pl-8 text-xs"}
                 placeholder="Buscar punto…"
@@ -183,9 +183,9 @@ export default function OptimizarTab({ points, segments, waits, rutasGuardadas =
                     const isStart = p.id === startId, on = selected.has(p.id) || isStart;
                     return (
                       <button key={p.id} onClick={() => !isStart && toggle(p.id)} disabled={isStart}
-                        className={`rounded-lg border px-2.5 py-2 text-left text-xs transition ${isStart ? "border-rtb-gold-500 bg-rtb-gold-500/15 text-rtb-gold-200" : on ? "border-teal-500 bg-teal-500/10 text-teal-200" : "border-slate-700 text-slate-400 hover:border-slate-600"}`}>
+                        className={`rounded-lg border px-2.5 py-2 text-left text-xs transition ${isStart ? "border-rtb-gold-500 bg-rtb-gold-500/15 text-rtb-gold-700" : on ? "border-rtb-teal-200 bg-rtb-teal-50 text-rtb-teal-700" : "border-rtb-navy/15 text-rtb-navy-mid hover:border-slate-300"}`}>
                         <div className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${TYPE_META[p.type].dot}`} /><span className="truncate">{p.name}</span></div>
-                        {isStart && <span className="text-[10px] text-rtb-gold-400/80">Inicio</span>}
+                        {isStart && <span className="text-[10px] text-rtb-gold-700/80">Inicio</span>}
                       </button>
                     );
                   })}
@@ -200,8 +200,8 @@ export default function OptimizarTab({ points, segments, waits, rutasGuardadas =
             </Field>
             <Field label="Tipo de ruta">
               <div className="flex gap-1">
-                <button onClick={() => setClosed(true)} className={`flex-1 rounded-lg border px-2 py-2 text-xs ${closed ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-300" : "border-slate-700 text-slate-400"}`}>Cerrada (regresa)</button>
-                <button onClick={() => setClosed(false)} className={`flex-1 rounded-lg border px-2 py-2 text-xs ${!closed ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-300" : "border-slate-700 text-slate-400"}`}>Abierta</button>
+                <button onClick={() => setClosed(true)} className={`flex-1 rounded-lg border px-2 py-2 text-xs ${closed ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-700" : "border-rtb-navy/15 text-rtb-navy-mid"}`}>Cerrada (regresa)</button>
+                <button onClick={() => setClosed(false)} className={`flex-1 rounded-lg border px-2 py-2 text-xs ${!closed ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-700" : "border-rtb-navy/15 text-rtb-navy-mid"}`}>Abierta</button>
               </div>
             </Field>
             <Field label="Usar tiempos de…">
@@ -219,7 +219,7 @@ export default function OptimizarTab({ points, segments, waits, rutasGuardadas =
           </div>
         </div>
       </Card>
-      {error && <Card className="border-rose-900/50 bg-rose-950/20 p-4 text-sm text-rose-300"><AlertTriangle size={16} className="mb-1 inline" /> {error}</Card>}
+      {error && <Card className="border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><AlertTriangle size={16} className="mb-1 inline" /> {error}</Card>}
       {session && curStats && (
         <RoutePlanner
           session={session} manualOrder={manualOrder} criterio={criterio} onCriterio={changeCriterio}
@@ -258,19 +258,19 @@ function SavedRoutesCard({ rutasGuardadas, profiles, editingId, onEdit, onDelete
   if (!rutasGuardadas.length) return null;
   return (
     <Card className="p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-200">Rutas guardadas</h3>
-      <ul className="divide-y divide-slate-800">
+      <h3 className="mb-3 text-sm font-semibold text-rtb-navy">Rutas guardadas</h3>
+      <ul className="divide-y divide-slate-200">
         {rutasGuardadas.map((r) => {
           const chofer = r.assignedTo ? profiles.find((p) => p.userId === r.assignedTo)?.nombre ?? "Chofer asignado" : null;
           return (
             <li key={r.id} className={`flex flex-wrap items-center gap-3 py-2.5 ${editingId === r.id ? "bg-rtb-gold-500/5" : ""}`}>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-slate-200">{r.nombre}</div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-slate-500">
+                <div className="text-sm font-medium text-rtb-navy">{r.nombre}</div>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-rtb-navy-mid">
                   {r.fecha && <span className="flex items-center gap-1"><Calendar size={11} /> {r.fecha}</span>}
                   <span>{r.stops.length} paradas</span>
                   <span>{r.closed ? "Cerrada" : "Abierta"}</span>
-                  {chofer ? <span className="flex items-center gap-1 text-rtb-gold-600"><Users size={10} /> {chofer}</span> : <span className="text-slate-700">Sin asignar</span>}
+                  {chofer ? <span className="flex items-center gap-1 text-rtb-gold-600"><Users size={10} /> {chofer}</span> : <span className="text-slate-300">Sin asignar</span>}
                 </div>
               </div>
               <div className="flex shrink-0 gap-1">
@@ -280,7 +280,7 @@ function SavedRoutesCard({ rutasGuardadas, profiles, editingId, onEdit, onDelete
                 <Btn
                   variant="ghost"
                   onClick={async () => { if (await confirm({ message: `¿Eliminar "${r.nombre}"?`, confirmLabel: "Eliminar", danger: true })) onDelete(r.id); }}
-                  className="py-1 px-2 text-rose-400 hover:text-rose-300"
+                  className="py-1 px-2 text-rose-700 hover:text-rose-800"
                 >
                   <Trash2 size={13} />
                 </Btn>
@@ -299,15 +299,15 @@ function AnchorMenu({ anchored, onFree, onFirst, onLast, onHere }) {
   return (
     <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
       <button type="button" onClick={() => setOpen((o) => !o)} title="Anclar parada"
-        className={`shrink-0 ${anchored ? "text-rtb-gold-400" : "text-slate-500 hover:text-slate-300"}`}>
+        className={`shrink-0 ${anchored ? "text-rtb-gold-700" : "text-rtb-navy-mid hover:text-rtb-navy"}`}>
         {anchored ? <Lock size={13} /> : <Unlock size={13} />}
       </button>
       {open && (
-        <div className="absolute right-0 top-6 z-10 w-44 rounded-lg border border-slate-700 bg-slate-900 p-1 text-xs shadow-lg">
-          <button onClick={() => { onFree(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Libre</button>
-          <button onClick={() => { onFirst(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Primera tras el inicio</button>
-          <button onClick={() => { onLast(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Última antes de regresar</button>
-          <button onClick={() => { onHere(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-slate-300 hover:bg-slate-800">Fijar en esta posición</button>
+        <div className="absolute right-0 top-6 z-10 w-44 rounded-lg border border-rtb-navy/15 bg-white p-1 text-xs shadow-lg">
+          <button onClick={() => { onFree(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-rtb-navy-mid hover:bg-rtb-surface">Libre</button>
+          <button onClick={() => { onFirst(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-rtb-navy-mid hover:bg-rtb-surface">Primera tras el inicio</button>
+          <button onClick={() => { onLast(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-rtb-navy-mid hover:bg-rtb-surface">Última antes de regresar</button>
+          <button onClick={() => { onHere(); setOpen(false); }} className="block w-full rounded px-2 py-1.5 text-left text-rtb-navy-mid hover:bg-rtb-surface">Fijar en esta posición</button>
         </div>
       )}
     </div>
@@ -339,17 +339,17 @@ function RoutePlanner({
     <div className="space-y-4">
       <Card className="p-4">
         <div className="mb-3 flex flex-wrap items-center gap-1">
-          <button onClick={() => onCriterio("time")} className={`rounded-lg border px-3 py-1.5 text-xs ${criterio === "time" ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-300" : "border-slate-700 text-slate-400"}`}>Por tiempo</button>
-          <button onClick={() => onCriterio("dist")} disabled={session.distUnavailable} className={`rounded-lg border px-3 py-1.5 text-xs disabled:opacity-30 ${criterio === "dist" ? "border-sky-500 bg-sky-500/10 text-sky-300" : "border-slate-700 text-slate-400"}`}>Por distancia</button>
-          {session.distUnavailable && <span className="text-[10px] text-slate-600">faltan coordenadas/km para distancia</span>}
-          <span className="ml-auto rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">
+          <button onClick={() => onCriterio("time")} className={`rounded-lg border px-3 py-1.5 text-xs ${criterio === "time" ? "border-rtb-gold-500 bg-rtb-gold-500/10 text-rtb-gold-700" : "border-rtb-navy/15 text-rtb-navy-mid"}`}>Por tiempo</button>
+          <button onClick={() => onCriterio("dist")} disabled={session.distUnavailable} className={`rounded-lg border px-3 py-1.5 text-xs disabled:opacity-30 ${criterio === "dist" ? "border-sky-200 bg-sky-50 text-sky-700" : "border-rtb-navy/15 text-rtb-navy-mid"}`}>Por distancia</button>
+          {session.distUnavailable && <span className="text-[10px] text-slate-400">faltan coordenadas/km para distancia</span>}
+          <span className="ml-auto rounded bg-slate-100 px-2 py-0.5 text-[10px] text-rtb-navy-mid">
             {session.optExactTime ? "Óptima exacta" : `Heurística (${session.n} puntos)`}
           </span>
         </div>
 
         {criteriaDiffer && (
-          <p className="mb-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
-            <GitCompare size={14} className="shrink-0 text-slate-500" />
+          <p className="mb-3 flex items-center gap-2 rounded-lg border border-rtb-navy/15 bg-white px-3 py-2 text-xs text-rtb-navy-mid">
+            <GitCompare size={14} className="shrink-0 text-rtb-navy-mid" />
             {criterio === "time" ? "Si priorizaras distancia, el orden óptimo sería otro." : "Si priorizaras tiempo, el orden óptimo sería otro."}
           </p>
         )}
@@ -357,22 +357,22 @@ function RoutePlanner({
         <div className={`mb-3 grid gap-2 text-center ${comidaMin > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
           <Stat label="Manejo" value={fmtMin(curStats.totT)} highlight={criterio === "time"} />
           <Stat label="Esperas" value={fmtMin(curStats.totW)} />
-          {comidaMin > 0 && <Stat label="Comida" value={fmtMin(comidaMin)} color="text-orange-300" />}
+          {comidaMin > 0 && <Stat label="Comida" value={fmtMin(comidaMin)} color="text-orange-700" />}
           <Stat label="Total día" value={fmtMin(curStats.totT + curStats.totW + comidaMin)} highlight />
         </div>
-        <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-xs text-slate-500">
-          <span>Distancia: <span className={`font-mono ${criterio === "dist" ? "text-sky-300" : "text-slate-300"}`}>{fmtKm(curStats.totD)}</span></span>
-          {etaInfo && <span>Regreso: <span className="font-mono text-slate-300">{minToHHMM(etaInfo.horaRegresoMin)}{etaInfo.approxReturn ? " ≈" : ""}</span></span>}
+        <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-xs text-rtb-navy-mid">
+          <span>Distancia: <span className={`font-mono ${criterio === "dist" ? "text-sky-700" : "text-rtb-navy-mid"}`}>{fmtKm(curStats.totD)}</span></span>
+          {etaInfo && <span>Regreso: <span className="font-mono text-rtb-navy-mid">{minToHHMM(etaInfo.horaRegresoMin)}{etaInfo.approxReturn ? " ≈" : ""}</span></span>}
         </div>
 
         {!isManualOptimal && optStats && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rtb-gold-700/40 bg-rtb-gold-500/5 px-3 py-2 text-xs text-rtb-gold-300">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rtb-gold-700/40 bg-rtb-gold-500/5 px-3 py-2 text-xs text-rtb-gold-700">
             <span>{deltaAbs >= 0 ? "+" : ""}{fmtMin(deltaAbs)} · {deltaAbs >= 0 ? "+" : ""}{deltaPct.toFixed(0)}% que el óptimo</span>
-            <button onClick={onRestoreOptimal} className="shrink-0 underline hover:text-rtb-gold-200">Restaurar orden óptimo</button>
+            <button onClick={onRestoreOptimal} className="shrink-0 underline hover:text-rtb-gold-800">Restaurar orden óptimo</button>
           </div>
         )}
-        {isManualOptimal && <p className="mb-3 text-center text-xs text-teal-400">Orden óptimo</p>}
-        {curStats.anyEst && <p className="mb-3 text-center text-[10px] text-rose-300">incluye tramos estimados</p>}
+        {isManualOptimal && <p className="mb-3 text-center text-xs text-rtb-teal-700">Orden óptimo</p>}
+        {curStats.anyEst && <p className="mb-3 text-center text-[10px] text-rose-700">incluye tramos estimados</p>}
 
         <Field label="Hora de inicio">
           <input type="time" className={inputCls + " w-auto"} value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
@@ -390,17 +390,17 @@ function RoutePlanner({
                 onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); setDragIdx(i); }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); if (dragIdx != null) reorder(dragIdx, i); setDragIdx(null); }}
-                className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-sm ${isStart ? "border-rtb-gold-500/40 bg-rtb-gold-500/5" : "border-slate-800 bg-slate-950/40"}`}
+                className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-sm ${isStart ? "border-rtb-gold-500/40 bg-rtb-gold-500/5" : "border-rtb-teal-100 bg-white"}`}
               >
-                {!isStart && <GripVertical size={13} className="shrink-0 cursor-grab text-slate-600" />}
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[10px] font-bold text-slate-300">{i + 1}</span>
-                <span className="min-w-0 flex-1 truncate text-slate-200">{p.name}{isStart && <span className="ml-1 text-[10px] text-rtb-gold-400/80">Inicio</span>}</span>
-                {leg && <span className="flex shrink-0 items-center gap-1 text-[11px] text-slate-500"><ChevronRight size={11} /><span className={`font-mono ${leg.learned ? "text-teal-400" : "text-rose-400"}`}>{fmtMin(leg.min)}</span></span>}
-                {eta && <span className="shrink-0 font-mono text-[11px] text-slate-400">{minToHHMM(eta.etaMin)}{eta.approx ? "≈" : ""}</span>}
+                {!isStart && <GripVertical size={13} className="shrink-0 cursor-grab text-slate-400" />}
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-rtb-navy-mid">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-rtb-navy">{p.name}{isStart && <span className="ml-1 text-[10px] text-rtb-gold-700/80">Inicio</span>}</span>
+                {leg && <span className="flex shrink-0 items-center gap-1 text-[11px] text-rtb-navy-mid"><ChevronRight size={11} /><span className={`font-mono ${leg.learned ? "text-rtb-teal-700" : "text-rose-700"}`}>{fmtMin(leg.min)}</span></span>}
+                {eta && <span className="shrink-0 font-mono text-[11px] text-rtb-navy-mid">{minToHHMM(eta.etaMin)}{eta.approx ? "≈" : ""}</span>}
                 {!isStart && (
                   <>
-                    <button onClick={() => move(i, -1)} disabled={i <= 1} className="shrink-0 text-slate-500 hover:text-slate-300 disabled:opacity-20"><ArrowUp size={13} /></button>
-                    <button onClick={() => move(i, 1)} disabled={i >= manualOrder.length - 1} className="shrink-0 text-slate-500 hover:text-slate-300 disabled:opacity-20"><ArrowDown size={13} /></button>
+                    <button onClick={() => move(i, -1)} disabled={i <= 1} className="shrink-0 text-rtb-navy-mid hover:text-rtb-navy disabled:opacity-20"><ArrowUp size={13} /></button>
+                    <button onClick={() => move(i, 1)} disabled={i >= manualOrder.length - 1} className="shrink-0 text-rtb-navy-mid hover:text-rtb-navy disabled:opacity-20"><ArrowDown size={13} /></button>
                     <AnchorMenu
                       anchored={anchors.has(node)}
                       onFree={() => setAnchor(node, null)}
@@ -415,15 +415,15 @@ function RoutePlanner({
           })}
         </ol>
         {closed && curStats.legs.some((l) => l.ret) && (
-          <div className="mt-1 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/40 px-2 py-1.5 text-xs text-slate-500">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-[10px]">↩</span>
+          <div className="mt-1 flex items-center gap-2 rounded-lg border border-rtb-teal-100 bg-white px-2 py-1.5 text-xs text-rtb-navy-mid">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px]">↩</span>
             <span>Regreso al inicio</span>
             <span className="ml-auto font-mono">{fmtMin(curStats.legs[curStats.legs.length - 1].min)}</span>
           </div>
         )}
 
         {missingCoordsCount > 0 && (
-          <p className="mt-2 text-[11px] text-slate-500">{missingCoordsCount} parada(s) sin coordenadas no se muestran en el mapa.</p>
+          <p className="mt-2 text-[11px] text-rtb-navy-mid">{missingCoordsCount} parada(s) sin coordenadas no se muestran en el mapa.</p>
         )}
         <Suspense fallback={<MapFallback className="mt-3 h-64 w-full rounded-lg" />}>
           <RouteMap className="mt-3 h-64 w-full overflow-hidden rounded-lg" stops={mapStops} closed={closed} />
@@ -526,7 +526,7 @@ function AssignCard({ manualOrder, session, closed, horaInicio, onSaveRuta, ruta
 
   return (
     <Card className="p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-200">
+      <h3 className="mb-3 text-sm font-semibold text-rtb-navy">
         {editingRoute ? `Editando "${editingRoute.nombre}"` : "Asignar a chofer"}
       </h3>
       <div className="space-y-2">
@@ -545,14 +545,14 @@ function AssignCard({ manualOrder, session, closed, horaInicio, onSaveRuta, ruta
           </Field>
         </div>
         {conflict && (
-          <p className="rounded-lg border border-rose-800/50 bg-rose-950/20 px-3 py-2 text-xs text-rose-300">
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
             <AlertTriangle size={13} className="mr-1 inline" />
             Este chofer ya tiene la ruta "{conflict.nombre}" asignada el {fecha}.
             {!confirmConflict && " Presiona \"Asignar a chofer\" otra vez para confirmar."}
           </p>
         )}
         {saveError && (
-          <p className="rounded-lg border border-rose-800/50 bg-rose-950/20 px-3 py-2 text-xs text-rose-300">
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
             <AlertTriangle size={13} className="mr-1 inline" /> {saveError}
           </p>
         )}
@@ -569,7 +569,7 @@ function AssignCard({ manualOrder, session, closed, horaInicio, onSaveRuta, ruta
         <Btn onClick={handleAssign} disabled={saving || !assignedTo || !nombre.trim()} className="w-full justify-center">
           <Navigation size={15} /> {saving ? "Asignando…" : editingRoute ? "Asignar como ruta nueva" : "Asignar a chofer"}
         </Btn>
-        <Btn variant="ghost" onClick={() => doSave(null)} disabled={saving || !nombre.trim()} className="w-full justify-center text-slate-400">
+        <Btn variant="ghost" onClick={() => doSave(null)} disabled={saving || !nombre.trim()} className="w-full justify-center text-rtb-navy-mid">
           <BookMarked size={15} /> {editingRoute ? "Guardar como plantilla nueva" : "Guardar plantilla sin asignar"}
         </Btn>
       </div>

@@ -42,8 +42,8 @@ export default function MiCuentaTab({ profile, onUpdateName, onChangePassword })
     <div className="max-w-md space-y-4">
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
-          <UserCircle size={14} className="text-rtb-gold-400" />
-          <span className="text-sm font-semibold text-slate-200">Mi nombre</span>
+          <UserCircle size={14} className="text-rtb-gold-700" />
+          <span className="text-sm font-semibold text-rtb-navy">Mi nombre</span>
         </div>
         <div className="flex items-end gap-2">
           <div className="flex-1">
@@ -55,13 +55,13 @@ export default function MiCuentaTab({ profile, onUpdateName, onChangePassword })
             <Save size={12} /> {savingName ? "Guardando…" : "Guardar"}
           </Btn>
         </div>
-        {nameMsg && <p className="mt-2 text-xs text-teal-400">{nameMsg}</p>}
+        {nameMsg && <p className="mt-2 text-xs text-rtb-teal-700">{nameMsg}</p>}
       </Card>
 
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
-          <KeyRound size={14} className="text-rtb-gold-400" />
-          <span className="text-sm font-semibold text-slate-200">Cambiar contraseña</span>
+          <KeyRound size={14} className="text-rtb-gold-700" />
+          <span className="text-sm font-semibold text-rtb-navy">Cambiar contraseña</span>
         </div>
         <div className="space-y-2">
           <Field label="Nueva contraseña">
@@ -70,8 +70,8 @@ export default function MiCuentaTab({ profile, onUpdateName, onChangePassword })
           <Field label="Repite la contraseña">
             <input type="password" className={inputCls} value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && savePassword()} />
           </Field>
-          {pwErr && <p className="text-xs text-rose-400">{pwErr}</p>}
-          {pwMsg && <p className="text-xs text-teal-400">{pwMsg}</p>}
+          {pwErr && <p className="text-xs text-rose-700">{pwErr}</p>}
+          {pwMsg && <p className="text-xs text-rtb-teal-700">{pwMsg}</p>}
           <Btn onClick={savePassword} disabled={savingPw || !pw || !pw2} className="text-xs">
             {savingPw ? "Guardando…" : "Actualizar contraseña"}
           </Btn>

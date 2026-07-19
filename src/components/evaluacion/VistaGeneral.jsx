@@ -1,5 +1,5 @@
 import { resumenFlota } from "../../lib/evaluacion";
-import { Card, Empty } from "./ui";
+import { Card, Empty, SectionTitle } from "./ui";
 import CriteriosBars from "./CriteriosBars";
 import { fmtMin } from "./format";
 
@@ -11,23 +11,23 @@ export default function VistaGeneral({ evs }) {
 
   return (
     <Card className="p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-200">Resumen de flota</h3>
+      <SectionTitle>Resumen de flota</SectionTitle>
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-lg border border-slate-800 bg-slate-950/50 px-2 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Recorridos evaluados</div>
-          <div className="font-mono text-sm text-slate-200">{r.n}</div>
+        <div className="rounded-lg border border-rtb-teal-100 bg-white px-2 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-rtb-navy-mid">Recorridos evaluados</div>
+          <div className="font-mono text-sm text-rtb-navy">{r.n}</div>
         </div>
-        <div className="rounded-lg border border-rtb-gold-500/40 bg-rtb-gold-500/5 px-2 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Puntuación promedio</div>
-          <div className="font-mono text-sm text-rtb-gold-300">{r.promedio != null ? Math.round(r.promedio) : "—"}</div>
+        <div className="rounded-lg border border-rtb-gold-300 bg-rtb-gold-50 px-2 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-rtb-navy-mid">Puntuación promedio</div>
+          <div className="font-mono text-sm text-rtb-gold-700">{r.promedio != null ? Math.round(r.promedio) : "—"}</div>
         </div>
-        <div className="rounded-lg border border-slate-800 bg-slate-950/50 px-2 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Tiempo desperdiciado (total)</div>
-          <div className="font-mono text-sm text-rose-300">{fmtMin(r.tiempoDesperdiciado)}</div>
+        <div className="rounded-lg border border-rtb-teal-100 bg-white px-2 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-rtb-navy-mid">Tiempo desperdiciado (total)</div>
+          <div className="font-mono text-sm text-rose-700">{fmtMin(r.tiempoDesperdiciado)}</div>
         </div>
-        <div className="rounded-lg border border-slate-800 bg-slate-950/50 px-2 py-2">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Excelente / Bien / Regular / Bajo</div>
-          <div className="font-mono text-sm text-slate-200">{r.distribucion.excelente}/{r.distribucion.bien}/{r.distribucion.regular}/{r.distribucion.bajo}</div>
+        <div className="rounded-lg border border-rtb-teal-100 bg-white px-2 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-rtb-navy-mid">Excelente / Bien / Regular / Bajo</div>
+          <div className="font-mono text-sm text-rtb-navy">{r.distribucion.excelente}/{r.distribucion.bien}/{r.distribucion.regular}/{r.distribucion.bajo}</div>
         </div>
       </div>
       <CriteriosBars criterios={r.porCriterio} detail={false} />
