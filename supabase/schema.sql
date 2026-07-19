@@ -37,6 +37,7 @@ create table if not exists public.recorridos (
   ts         bigint not null,          -- epoch ms (mediodía de 'fecha'); lo usa el cálculo por día de la semana
   stops      jsonb  not null,
   driver_id  uuid references auth.users(id),  -- chofer que ejecutó la ruta (null = histórico previo a este módulo)
+  edit_log   jsonb  not null default '[]',     -- registro de ediciones del despacho durante la ruta (ver merge_ruta_activa)
   created_at timestamptz not null default now()
 );
 
@@ -44,21 +45,10 @@ create index if not exists recorridos_ts_idx        on public.recorridos (ts);
 create index if not exists recorridos_fecha_idx     on public.recorridos (fecha);
 create index if not exists recorridos_driver_id_idx on public.recorridos (driver_id);
 
--- ---------------------------------------------------------------------
--- Row Level Security (puntos y recorridos: datos compartidos de empresa)
--- ---------------------------------------------------------------------
-alter table public.puntos     enable row level security;
-alter table public.recorridos enable row level security;
-
-create policy "puntos: acceso total autenticados"
-  on public.puntos for all
-  to authenticated
-  using (true) with check (true);
-
-create policy "recorridos: acceso total autenticados"
-  on public.recorridos for all
-  to authenticated
-  using (true) with check (true);
+-- Row Level Security de puntos y recorridos: se habilita más abajo, junto
+-- a sus políticas, DESPUÉS de definir public.is_staff() (evita crear una
+-- política que referencia una función que aún no existe en una
+-- instalación nueva corrida de arriba a abajo). Ver esa sección.
 
 -- ---------------------------------------------------------------------
 -- profiles: rol de cada usuario (admin / supervisor / driver).
@@ -129,6 +119,39 @@ create trigger trg_impedir_cambio_de_rol
   for each row execute function public.impedir_cambio_de_rol();
 
 -- ---------------------------------------------------------------------
+-- Row Level Security (puntos y recorridos: datos compartidos de empresa)
+-- Lectura abierta a todo autenticado; escritura restringida por rol. Un
+-- chofer solo puede insertar SU PROPIO recorrido (al terminar su ruta);
+-- no puede editar ni borrar puntos ni recorridos, ni tocar los de otro
+-- chofer. (Ver supabase/migrations/2026-07-permisos-puntos-recorridos.sql
+-- para aplicar este cambio sobre una base ya existente.)
+-- ---------------------------------------------------------------------
+alter table public.puntos     enable row level security;
+alter table public.recorridos enable row level security;
+
+create policy "puntos: lectura autenticados"
+  on public.puntos for select to authenticated using (true);
+
+create policy "puntos: gestion staff"
+  on public.puntos for all to authenticated
+  using (public.is_staff()) with check (public.is_staff());
+
+create policy "recorridos: lectura autenticados"
+  on public.recorridos for select to authenticated using (true);
+
+create policy "recorridos: insert propio o staff"
+  on public.recorridos for insert to authenticated
+  with check (driver_id = auth.uid() or public.is_staff());
+
+create policy "recorridos: update staff"
+  on public.recorridos for update to authenticated
+  using (public.is_staff()) with check (public.is_staff());
+
+create policy "recorridos: delete staff"
+  on public.recorridos for delete to authenticated
+  using (public.is_staff());
+
+-- ---------------------------------------------------------------------
 -- rutas_guardadas: planes de ruta diseñados con antelación.
 -- assigned_to: chofer asignado (null = sin asignar, cualquier driver puede cargarla).
 -- Driver ve solo las que le asignaron (o las sin asignar); admin y supervisor ven todas.
@@ -193,3 +216,139 @@ create policy "ruta_activa: delete propia o staff"
 
 -- Realtime: notificaciones en vivo cuando cualquier ruta activa cambia
 alter publication supabase_realtime add table public.ruta_activa;
+
+-- ---------------------------------------------------------------------
+-- merge_ruta_activa: fusión atómica del estado de ruta_activa cuando el
+-- chofer y el despacho pueden estar guardando cambios casi al mismo
+-- tiempo. El state se divide en tres grupos, cada uno con su propio
+-- sello de escritura (Date.now() del último cambio a ESE grupo):
+--   _wDriver   → route, phase, nextStop, nextLegKm, done, horaInicio,
+--                noticeAckAt        (dueño: el CHOFER)
+--   _wPlan     → remaining                            (dueño: el DESPACHO)
+--   _wDispatch → notes, notice, editLog                (dueño: el DESPACHO)
+-- El sello legado `_w` se conserva como el máximo de los tres.
+--
+-- Esta MISMA lógica vive también en JS puro, en src/lib/rutaActivaMerge.js
+-- (mergeRutaActiva), usada para fusionar lecturas (realtime, caché
+-- offline). Si se cambia una, cambiar la otra.
+-- ---------------------------------------------------------------------
+create or replace function public._stamp_of(state jsonb, key text)
+returns numeric
+language sql immutable as $$
+  select coalesce(
+    (state -> key)::text::numeric,
+    (state -> '_w')::text::numeric,
+    -1
+  );
+$$;
+
+-- Une dos listas append-only (notas, registro de ediciones) por "id",
+-- sin duplicar, ordenadas por "at". Un elemento sin "id" usa su JSON
+-- completo como clave (nunca se descarta silenciosamente).
+create or replace function public._merge_json_list(a jsonb, b jsonb)
+returns jsonb
+language plpgsql immutable as $$
+declare
+  item jsonb;
+  key text;
+  ids text[] := '{}';
+  acc jsonb := '[]'::jsonb;
+begin
+  for item in select * from jsonb_array_elements(coalesce(a, '[]'::jsonb)) loop
+    key := coalesce(item ->> 'id', item::text);
+    if not (key = any(ids)) then
+      ids := ids || key;
+      acc := acc || jsonb_build_array(item);
+    end if;
+  end loop;
+  for item in select * from jsonb_array_elements(coalesce(b, '[]'::jsonb)) loop
+    key := coalesce(item ->> 'id', item::text);
+    if not (key = any(ids)) then
+      ids := ids || key;
+      acc := acc || jsonb_build_array(item);
+    end if;
+  end loop;
+  return coalesce(
+    (select jsonb_agg(elem order by coalesce((elem ->> 'at')::numeric, 0))
+     from jsonb_array_elements(acc) elem),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+-- merge_ruta_activa: lee la fila actual CON BLOQUEO, fusiona el estado
+-- entrante por grupo de campos, y escribe el resultado. `security
+-- invoker`: corre con los permisos del usuario que llama (respeta las
+-- políticas RLS de ruta_activa tal cual están arriba).
+create or replace function public.merge_ruta_activa(
+  p_driver uuid,
+  p_driver_nombre text,
+  p_incoming jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  base jsonb;
+  merged jsonb;
+  driver_wins boolean;
+  plan_wins boolean;
+  dispatch_wins boolean;
+begin
+  select state into base from public.ruta_activa where driver_id = p_driver for update;
+
+  if base is null then
+    merged := p_incoming;
+  else
+    driver_wins   := public._stamp_of(p_incoming, '_wDriver')   > public._stamp_of(base, '_wDriver');
+    plan_wins     := public._stamp_of(p_incoming, '_wPlan')     > public._stamp_of(base, '_wPlan');
+    dispatch_wins := public._stamp_of(p_incoming, '_wDispatch') > public._stamp_of(base, '_wDispatch');
+
+    merged := jsonb_build_object(
+      'title',        coalesce(base -> 'title', p_incoming -> 'title'),
+      'closed',       coalesce(base -> 'closed', p_incoming -> 'closed'),
+      'startId',      coalesce(base -> 'startId', p_incoming -> 'startId'),
+      'startName',    coalesce(base -> 'startName', p_incoming -> 'startName'),
+      'endId',        coalesce(base -> 'endId', p_incoming -> 'endId'),
+      'driverNombre', coalesce(p_incoming -> 'driverNombre', base -> 'driverNombre'),
+
+      'route',        case when driver_wins then p_incoming -> 'route' else base -> 'route' end,
+      'phase',        case when driver_wins then p_incoming -> 'phase' else base -> 'phase' end,
+      'nextStop',     case when driver_wins then p_incoming -> 'nextStop' else base -> 'nextStop' end,
+      'nextLegKm',    case when driver_wins then p_incoming -> 'nextLegKm' else base -> 'nextLegKm' end,
+      'done',         case when driver_wins then p_incoming -> 'done' else base -> 'done' end,
+      'horaInicio',   case when driver_wins then p_incoming -> 'horaInicio' else base -> 'horaInicio' end,
+      'noticeAckAt',  case when driver_wins then p_incoming -> 'noticeAckAt' else base -> 'noticeAckAt' end,
+
+      'remaining',    coalesce(case when plan_wins then p_incoming -> 'remaining' else base -> 'remaining' end, '[]'::jsonb),
+
+      'notes',        public._merge_json_list(base -> 'notes', p_incoming -> 'notes'),
+      'notice',       case when dispatch_wins then p_incoming -> 'notice' else base -> 'notice' end,
+      'editLog',      public._merge_json_list(base -> 'editLog', p_incoming -> 'editLog'),
+
+      '_wDriver',   greatest(public._stamp_of(base, '_wDriver'), public._stamp_of(p_incoming, '_wDriver')),
+      '_wPlan',     greatest(public._stamp_of(base, '_wPlan'), public._stamp_of(p_incoming, '_wPlan')),
+      '_wDispatch', greatest(public._stamp_of(base, '_wDispatch'), public._stamp_of(p_incoming, '_wDispatch'))
+    );
+    merged := merged || jsonb_build_object(
+      '_w', greatest(
+        (merged ->> '_wDriver')::numeric,
+        (merged ->> '_wPlan')::numeric,
+        (merged ->> '_wDispatch')::numeric
+      )
+    );
+  end if;
+
+  insert into public.ruta_activa (driver_id, driver_nombre, state, updated_at)
+  values (p_driver, p_driver_nombre, merged, now())
+  on conflict (driver_id) do update
+    set driver_nombre = excluded.driver_nombre,
+        state = excluded.state,
+        updated_at = excluded.updated_at;
+
+  return merged;
+end;
+$$;
+
+grant execute on function public.merge_ruta_activa(uuid, text, jsonb) to authenticated;
