@@ -310,21 +310,29 @@ function AppInner() {
    * seguimiento-ruta.sql) para no pisar una escritura concurrente del chofer.
    */
   const applyDispatchEdit = useCallback(async (driverId, driverNombre, editFn, { group = "plan" } = {}) => {
-    const fresh = await getRutaActiva(driverId);
-    if (!fresh?.state || fresh.state.done) return;
-    const stamp = Date.now();
-    const by = profileRef.current?.userId ?? null;
-    const byName = profileRef.current?.nombre ?? null;
-    let next = { ...fresh.state };
-    next = editFn(next, { stamp, by, byName }) || next;
-    if (group === "plan") next._wPlan = stamp;
-    if (group === "dispatch") next._wDispatch = stamp;
-    next._wDriver = next._wDriver ?? -1;
-    next._wPlan = next._wPlan ?? -1;
-    next._wDispatch = next._wDispatch ?? -1;
-    next._w = Math.max(next._wDriver, next._wPlan, next._wDispatch);
-    await saveRutaActiva(driverId, fresh.driverNombre ?? driverNombre, next);
-  }, []);
+    try {
+      const fresh = await getRutaActiva(driverId);
+      if (!fresh?.state || fresh.state.done) return;
+      const stamp = Date.now();
+      const by = profileRef.current?.userId ?? null;
+      const byName = profileRef.current?.nombre ?? null;
+      let next = { ...fresh.state };
+      next = editFn(next, { stamp, by, byName }) || next;
+      if (group === "plan") next._wPlan = stamp;
+      if (group === "dispatch") next._wDispatch = stamp;
+      next._wDriver = next._wDriver ?? -1;
+      next._wPlan = next._wPlan ?? -1;
+      next._wDispatch = next._wDispatch ?? -1;
+      next._w = Math.max(next._wDriver, next._wPlan, next._wDispatch);
+      await saveRutaActiva(driverId, fresh.driverNombre ?? driverNombre, next);
+    } catch (e) {
+      // Antes fallaba en silencio (p. ej. por RLS) y la UI parecía haber
+      // enviado el cambio aunque nunca llegara al chofer — ver
+      // supabase/migrations/2026-07-seguimiento-insert-staff.sql.
+      console.error("applyDispatchEdit:", e);
+      toast("No se pudo enviar el cambio al chofer. Intenta de nuevo.", { type: "error" });
+    }
+  }, [toast]);
 
   const onDispatchAddStop = (driverId, driverNombre, point) =>
     applyDispatchEdit(driverId, driverNombre, (state, { stamp, by, byName }) => {

@@ -48,3 +48,42 @@ Con este paso hecho, el módulo queda 100% funcional: línea de tiempo,
 estadísticas en vivo, identidad por color, edición del plan de
 pendientes, alertas de desviación y el chat de mensajes entre despacho y
 chofer.
+
+## Troubleshooting: el despacho (admin/supervisor) no puede mandar mensajes ni editar el plan
+
+Síntoma detectado en campo (2026-07-20): el chofer sí envía mensajes y
+los tres roles los ven, pero cuando admin o supervisor responden desde
+**Seguimiento**, el mensaje no le llega al chofer. En consola del
+navegador aparece:
+
+```
+POST .../rest/v1/rpc/merge_ruta_activa 403 (Forbidden)
+{code: '42501', message: 'new row violates row-level security policy for table "ruta_activa"'}
+```
+
+**Causa:** `merge_ruta_activa` guarda con
+`INSERT ... ON CONFLICT (driver_id) DO UPDATE`. Postgres evalúa la
+política de **INSERT** (`WITH CHECK`) sobre la fila propuesta aunque el
+resultado sea un UPDATE de una fila ya existente. La política de INSERT
+de `ruta_activa` solo dejaba `driver_id = auth.uid()` — sin la excepción
+`is_staff()` que sí tenían UPDATE y DELETE — así que el despacho nunca
+podía escribir en la fila de OTRO chofer (mensaje, agregar/quitar/
+reordenar parada), aunque sí podía leerla y aunque el error no se veía
+en la UI (se tragaba en silencio).
+
+**Arreglo:** correr
+[`migrations/2026-07-seguimiento-insert-staff.sql`](./migrations/2026-07-seguimiento-insert-staff.sql)
+(idempotente, no bloquea la tabla, seguro con rutas activas en curso):
+
+```sql
+drop policy if exists "ruta_activa: insert propia" on public.ruta_activa;
+drop policy if exists "ruta_activa: insert propia o staff" on public.ruta_activa;
+create policy "ruta_activa: insert propia o staff"
+  on public.ruta_activa for insert to authenticated
+  with check (driver_id = auth.uid() or public.is_staff());
+```
+
+De paso, `applyDispatchEdit` (`src/App.jsx`) ahora captura cualquier
+error de estas 4 acciones y muestra un toast ("No se pudo enviar el
+cambio al chofer...") en vez de fallar en silencio — para detectar un
+problema similar sin depender de la consola del navegador.

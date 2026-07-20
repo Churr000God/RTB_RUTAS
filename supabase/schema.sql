@@ -201,9 +201,16 @@ create policy "ruta_activa: lectura"
   on public.ruta_activa for select to authenticated
   using (driver_id = auth.uid() or public.is_staff());
 
-create policy "ruta_activa: insert propia"
+create policy "ruta_activa: insert propia o staff"
   on public.ruta_activa for insert to authenticated
-  with check (driver_id = auth.uid());
+  with check (driver_id = auth.uid() or public.is_staff());
+-- Necesaria porque merge_ruta_activa (más abajo) guarda con
+-- INSERT ... ON CONFLICT DO UPDATE: Postgres evalúa el WITH CHECK de
+-- INSERT aunque el resultado final sea un UPDATE de fila existente. Sin
+-- esta excepción para staff, el despacho (admin/supervisor) no puede
+-- escribir en la fila de otro chofer (mensajes, plan de pendientes) aun
+-- teniendo permiso de UPDATE — ver supabase/migrations/2026-07-
+-- seguimiento-insert-staff.sql.
 
 create policy "ruta_activa: update propia o staff"
   on public.ruta_activa for update to authenticated
