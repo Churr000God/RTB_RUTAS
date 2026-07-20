@@ -92,7 +92,7 @@ export default function EvaluacionTab({ points, recorridos, profiles }) {
               className="w-full rounded-lg border border-rtb-navy/15 bg-white px-2 py-1.5 text-sm text-rtb-navy">
               {periodEvs.slice().reverse().map((e) => (
                 <option key={e.id} value={e.id}>
-                  {e.date} · {nombreDeChofer(e.driverId)} · {e.etiqueta} ({e.puntuacionFinal != null ? Math.round(e.puntuacionFinal) : "—"})
+                  {e.nombreRuta ? `${e.nombreRuta} · ` : ""}{e.date} · {nombreDeChofer(e.driverId)} · {e.etiqueta} ({e.puntuacionFinal != null ? Math.round(e.puntuacionFinal) : "—"})
                 </option>
               ))}
             </select>

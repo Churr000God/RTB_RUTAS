@@ -541,10 +541,20 @@ export default function RutaDiaTab({ rutaDia, setRutaDia, onSaveRuta, allPoints,
       // se borre al terminar. Requiere recorridos.edit_log (ver supabase/
       // migrations/2026-07-seguimiento-ruta.sql); si no se aplicó, addRecorrido
       // reintenta sin la columna y el log simplemente no se conserva.
-      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops, editLog: rutaDia.editLog || [], driverId: profile?.userId ?? null });
+      await onSaveRuta({ dateISO: today, ts: Date.now(), stops: recStops, editLog: rutaDia.editLog || [], driverId: profile?.userId ?? null, nombreRuta: rutaDia.title ?? null });
       patch({ route: finalRoute, done: true });
       setPrevSnapshot(null);
-    } catch { setErr("Error al guardar. Intenta de nuevo."); }
+      // La plantilla de origen es de un solo uso: al terminar la ruta se
+      // borra (RLS permite al chofer borrar solo la que tiene assigned_to
+      // = su propio id, ver supabase/migrations). Si falla (ej. plantilla
+      // sin asignar, ya borrada, o sin red) no bloquea la ruta ya guardada.
+      if (rutaDia.rutaGuardadaId) {
+        onDeleteRutaGuardada?.(rutaDia.rutaGuardadaId).catch((e) => console.error("no se pudo borrar la plantilla de origen:", e));
+      }
+    } catch (e) {
+      console.error("saveRoute:", e);
+      setErr(`Error al guardar: ${e?.message || e}`);
+    }
     finally { setSaving(false); }
   };
 

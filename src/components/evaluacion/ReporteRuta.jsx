@@ -31,14 +31,15 @@ export default function ReporteRuta({ ev, driverNombre }) {
           <p className="print-brand-teal text-xs uppercase tracking-wider">Reporte de evaluación de ruta</p>
         </div>
         <div className="print-brand-navy ml-auto text-right text-xs">
-          <p className="font-semibold">{ev.date}</p>
+          {ev.nombreRuta && <p className="font-semibold">{ev.nombreRuta}</p>}
+          <p className={ev.nombreRuta ? "" : "font-semibold"}>{ev.date}</p>
           <p>{driverNombre || "Sin asignar"}</p>
         </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3 print:hidden">
         <div>
-          <h3 className="text-sm font-semibold text-rtb-navy">{ev.date} · {driverNombre || "Sin asignar"}</h3>
+          <h3 className="text-sm font-semibold text-rtb-navy">{ev.nombreRuta ? `${ev.nombreRuta} · ` : ""}{ev.date} · {driverNombre || "Sin asignar"}</h3>
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-rtb-navy-mid">
             {ev.n} paradas · ruta {ev.closed ? "cerrada" : "abierta"}
             {ev.estimado && (

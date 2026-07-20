@@ -173,7 +173,7 @@ export function evaluarRecorrido(R, points, allRecorridos, { weights = DEFAULT_W
   const { puntuacionFinal, etiqueta } = combinarCriterios(criterios, weights);
 
   return {
-    id: R.id, driverId: R.driverId ?? null, date: R.dateISO, ts: R.ts, n, closed,
+    id: R.id, driverId: R.driverId ?? null, nombreRuta: R.nombreRuta ?? null, date: R.dateISO, ts: R.ts, n, closed,
     realMeasured, totalWait, totalBreak, realOnMatrix, optCost: opt.cost, gap, gapPct,
     realNames: subPts.map((p) => p.name),
     optNames: opt.order.map((k) => subPts[k].name),

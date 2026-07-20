@@ -250,7 +250,7 @@ function AppInner() {
 
   // Un chofer solo puede EJECUTAR una ruta a la vez (asignar varias sigue siendo
   // libre). Se bloquea en vez de ofrecer "reemplazar" para no perder progreso.
-  const onLoadRutaDia = ({ title, stops, closed, horaInicio }) => {
+  const onLoadRutaDia = ({ title, stops, closed, horaInicio, rutaGuardadaId = null }) => {
     if (rutaDia && !rutaDia.done) {
       toast(`Ya tienes una ruta en curso ("${rutaDia.title}"). Termínala o cancélala antes de iniciar otra.`, { type: "warn" });
       setTab("ruta-dia");
@@ -258,7 +258,7 @@ function AppInner() {
     }
     const startStop = stops[0];
     const next = {
-      title, closed,
+      title, closed, rutaGuardadaId,
       startId: startStop.id,
       startName: startStop.name,
       endId: closed ? startStop.id : null,
@@ -293,7 +293,7 @@ function AppInner() {
     await removeRutaGuardada(id);
     setRutasGuardadas((prev) => prev.filter((r) => r.id !== id));
   };
-  const onLoadRutaGuardada = (r) => onLoadRutaDia({ title: r.nombre, stops: r.stops, closed: r.closed, horaInicio: r.horaInicio });
+  const onLoadRutaGuardada = (r) => onLoadRutaDia({ title: r.nombre, stops: r.stops, closed: r.closed, horaInicio: r.horaInicio, rutaGuardadaId: r.id });
   const onLiberarRuta = async (driverId) => {
     if (!(await confirm({ message: "¿Liberar / cancelar la ruta de este chofer?", confirmLabel: "Liberar", danger: true }))) return;
     try { await clearRutaActiva(driverId); }
@@ -382,7 +382,7 @@ function AppInner() {
   const onRemovePunto = async (id) => { await removePunto(id); await refresh(); };
   const onAddRecorrido = async (r) => {
     await addRecorrido(r);
-    await refresh();
+    await refresh().catch((e) => console.error("refresh tras addRecorrido:", e));
   };
   const onRestoreBackup = async (data, tipos) => { await restoreBackup(data, tipos); await refresh(); };
   const onUpdateProfileRole = async (userId, nombre, role) => {
