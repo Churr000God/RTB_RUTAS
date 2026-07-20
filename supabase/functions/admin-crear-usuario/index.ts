@@ -26,6 +26,17 @@ function jsonResponse(body, status = 200) {
 
 const VALID_ROLES = ["admin", "supervisor", "driver"];
 
+// Algunos errores de Supabase (Auth/Postgrest) no traen `.message` sino
+// `.error_description`/`.msg`/`.error`, o ninguno. jsonResponse({error})
+// con `undefined` se serializa como `{}` (JSON.stringify descarta claves
+// undefined) y el motivo real queda invisible del otro lado — de ahí el
+// "{} (HTTP 400)" reportado. Esta función garantiza siempre un string.
+function errMsg(e) {
+  if (!e) return "Error desconocido";
+  if (typeof e === "string") return e;
+  return e.message || e.error_description || e.msg || e.error || JSON.stringify(e);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -36,6 +47,9 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+      return jsonResponse({ error: "Faltan env vars (SUPABASE_*)" }, 500);
+    }
 
     // Client "como el llamante": valida su JWT y respeta RLS.
     const caller = createClient(supabaseUrl, anonKey, {
@@ -66,7 +80,10 @@ Deno.serve(async (req) => {
     const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
     });
-    if (inviteErr) return jsonResponse({ error: inviteErr.message }, 400);
+    if (inviteErr) {
+      console.error("[admin-crear-usuario] inviteUserByEmail error:", JSON.stringify(inviteErr));
+      return jsonResponse({ error: errMsg(inviteErr) }, 400);
+    }
 
     const userId = invited.user.id;
     const { data: profile, error: insertErr } = await admin
@@ -76,13 +93,15 @@ Deno.serve(async (req) => {
       .single();
 
     if (insertErr) {
+      console.error("[admin-crear-usuario] insert profile error:", JSON.stringify(insertErr));
       // No dejar una cuenta huérfana sin perfil: revertir la invitación.
       await admin.auth.admin.deleteUser(userId).catch(() => {});
-      return jsonResponse({ error: insertErr.message }, 400);
+      return jsonResponse({ error: errMsg(insertErr) }, 400);
     }
 
     return jsonResponse({ profile });
   } catch (e) {
-    return jsonResponse({ error: e?.message ?? "Error interno" }, 500);
+    console.error("[admin-crear-usuario] excepción:", e);
+    return jsonResponse({ error: errMsg(e) }, 500);
   }
 });

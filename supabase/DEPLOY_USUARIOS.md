@@ -54,3 +54,29 @@ user" y "Reset password" estén en español si quieres, y que el link use
 Con estos 3 pasos hechos, el módulo queda 100% funcional: crear
 usuarios, resetear contraseñas, deshabilitar/habilitar cuentas, y que
 cada quien cambie su propio nombre/contraseña desde **Mi cuenta**.
+
+## Troubleshooting: invitación falla con `{} (HTTP 400)`
+
+Si al dar de alta un usuario ves ese error casi vacío, el motivo real
+estaba oculto porque `JSON.stringify({ error: undefined })` produce
+`{}` — algunos errores de Supabase (Auth/Postgrest) no traen `.message`.
+Ya está resuelto (helper `errMsg()` en `admin-crear-usuario/index.ts`,
+que además loguea el detalle con `console.error` — visible en Dashboard
+→ Edge Functions → `admin-crear-usuario` → **Logs**).
+
+Con ese log real a la vista, la causa más común es un
+**`AuthRetryableFetchError` con `status: 504`**: el servidor de Auth se
+cuelga esperando el envío del correo de invitación. Verificá
+**Authentication → Settings → SMTP Settings**:
+
+- **Port number** debe ser `587` (STARTTLS) o `465` (TLS implícito).
+  Un puerto que no escucha en tu servidor de correo (o un typo, p. ej.
+  `585`) hace que la conexión se cuelgue hasta expirar → 504.
+- El **Username**/contraseña deben corresponder exactamente a la
+  casilla configurada como remitente (revisar que no sea la de otra
+  cuenta de correo del dominio).
+
+Para aislar si el problema es el SMTP en general (y no la Edge
+Function): Dashboard → **Authentication → Users → Invite user** con el
+mismo correo. Si también falla ahí, es 100% configuración de SMTP, no
+código.
